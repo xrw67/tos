@@ -1,5 +1,11 @@
-add_executable(tos_header_smoke header_smoke.cpp)
-target_link_libraries(tos_header_smoke PRIVATE tos::tos)
+add_executable(tos_unit_tests smoke.cpp)
+target_link_libraries(tos_unit_tests PRIVATE tos::tos GTest::gtest_main)
 
-add_test(NAME tos.header_smoke COMMAND tos_header_smoke)
-set_tests_properties(tos.header_smoke PROPERTIES LABELS smoke TIMEOUT 30)
+include(GoogleTest)
+gtest_discover_tests(
+    tos_unit_tests
+    TEST_PREFIX tos.
+    DISCOVERY_MODE PRE_TEST
+    DISCOVERY_TIMEOUT 30
+    PROPERTIES LABELS unit TIMEOUT 30
+)

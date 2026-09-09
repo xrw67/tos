@@ -16,6 +16,8 @@ target_compile_features(tos INTERFACE cxx_std_17)
 
 include(CTest)
 
+add_subdirectory(third_party)
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()

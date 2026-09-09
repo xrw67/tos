@@ -38,8 +38,8 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      - name: Header smoke test
-        run: ctest --test-dir build -C Release -L smoke --output-on-failure --no-tests=error --timeout 30
+      - name: tests
+        run: ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error --timeout 30
 
       - name: Run example
         run: ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
