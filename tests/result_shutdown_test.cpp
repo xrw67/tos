@@ -10,9 +10,7 @@ namespace {
 
 struct ThrowOnMove {
     explicit ThrowOnMove(int) {}
-    ThrowOnMove(ThrowOnMove&&) {
-        throw std::runtime_error("move failed");
-    }
+    ThrowOnMove(ThrowOnMove&&) { throw std::runtime_error("move failed"); }
     ThrowOnMove& operator=(ThrowOnMove&&) = default;
 };
 

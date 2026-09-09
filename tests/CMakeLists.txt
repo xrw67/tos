@@ -1,4 +1,4 @@
-add_executable(tos_unit_tests status_test.cpp result_test.cpp)
+add_executable(tos_unit_tests status_test.cpp result_test.cpp time_test.cpp)
 target_link_libraries(tos_unit_tests PRIVATE tos::tos GTest::gtest_main)
 
 # A separate process is needed to observe static destruction after main returns.

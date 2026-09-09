@@ -54,24 +54,16 @@ class [[nodiscard]] Status {
     }
 
     /// 返回成功状态，不分配内存。
-    static Status Ok() noexcept {
-        return {};
-    }
+    static Status Ok() noexcept { return {}; }
 
     /// 当错误码为 kOk 时返回 true。
-    bool ok() const noexcept {
-        return rep_ == nullptr;
-    }
+    bool ok() const noexcept { return rep_ == nullptr; }
 
     /// 等价于 ok()，可用于 if (status) 等布尔判断。
-    explicit operator bool() const noexcept {
-        return ok();
-    }
+    explicit operator bool() const noexcept { return ok(); }
 
     /// 返回错误码；成功或被移动后的对象返回 kOk。
-    StatusCode code() const noexcept {
-        return rep_ ? rep_->code : StatusCode::kOk;
-    }
+    StatusCode code() const noexcept { return rep_ ? rep_->code : StatusCode::kOk; }
 
     /// 返回借用的消息视图；成功或无消息错误返回空视图，可包含嵌入的空字符。
     /// 不应依赖视图在本对象被赋值、移动或销毁后仍有效；独立保存需构造 std::string。
@@ -119,9 +111,7 @@ class [[nodiscard]] Status {
     }
 
     /// 错误码或消息内容不同时返回 true。
-    friend bool operator!=(const Status& lhs, const Status& rhs) noexcept {
-        return !(lhs == rhs);
-    }
+    friend bool operator!=(const Status& lhs, const Status& rhs) noexcept { return !(lhs == rhs); }
 
    private:
     struct ErrorRep {

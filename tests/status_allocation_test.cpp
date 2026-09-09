@@ -1,7 +1,6 @@
-#include <gtest/gtest.h>
-
 #include <cstddef>
 #include <cstdlib>
+#include <gtest/gtest.h>
 #include <limits>
 #include <new>
 #include <string>
@@ -28,9 +27,7 @@ class CountScope {
     explicit CountScope(AllocationCounts& counts) : previous_(active_counts) {
         active_counts = &counts;
     }
-    ~CountScope() {
-        active_counts = previous_;
-    }
+    ~CountScope() { active_counts = previous_; }
     CountScope(const CountScope&) = delete;
     CountScope& operator=(const CountScope&) = delete;
 
@@ -68,21 +65,13 @@ void operator delete(void* memory) noexcept {
     std::free(memory);
 }
 
-void operator delete(void* memory, std::size_t) noexcept {
-    ::operator delete(memory);
-}
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
 
-void* operator new[](std::size_t size) {
-    return ::operator new(size);
-}
+void* operator new[](std::size_t size) { return ::operator new(size); }
 
-void operator delete[](void* memory) noexcept {
-    ::operator delete(memory);
-}
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
 
-void operator delete[](void* memory, std::size_t) noexcept {
-    ::operator delete(memory);
-}
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
 
 namespace tos {
 namespace {

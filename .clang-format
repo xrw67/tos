@@ -1,15 +1,31 @@
-BasedOnStyle: Google
 Language: Cpp
+BasedOnStyle: Google
 Standard: c++17
-ColumnLimit: 100
-IndentWidth: 4
+
+# ---------- 基础布局 ----------
+ColumnLimit: 100 # 80 太紧、120 偏松,100 是现代项目的主流折中
+IndentWidth: 4 # 4 空格缩进
 TabWidth: 4
 UseTab: Never
-AccessModifierOffset: -1
-NamespaceIndentation: None
-PointerAlignment: Left
-DerivePointerAlignment: false
-BreakBeforeBraces: Attach
-AllowShortFunctionsOnASingleLine: Empty
-IncludeBlocks: Regroup
+ContinuationIndentWidth: 4 # 续行缩进与普通缩进一致
+
+# ---------- 指针与引用 ----------
+PointerAlignment: Left # int* p,而不是 int *p
+DerivePointerAlignment: false # 不从已有代码推导,全项目强制统一
+
+# ---------- 命名空间 ----------
+FixNamespaceComments: true # 自动补全/修正 "}  // namespace xxx" 注释
+ShortNamespaceLines: 1 # 只有一行的短 namespace 不加结尾注释
+
+# ---------- 头文件 ----------
 SortIncludes: CaseSensitive
+IncludeBlocks: Regroup # 按 IncludeCategories 自动分组重排
+IncludeCategories:
+  - Regex: '^<[a-z_]+\.h>' # C 系统头(无路径):<unistd.h>、<stdio.h>
+    Priority: 1
+  - Regex: "^<sys/" # C 系统头(sys 目录):<sys/types.h>
+    Priority: 1
+  - Regex: "^<" # C++ 标准库与第三方库:<vector>、<fmt/core.h>
+    Priority: 2
+  - Regex: '^"' # 本项目头文件:"app/config.h"
+    Priority: 3

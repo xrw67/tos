@@ -1,7 +1,6 @@
 #include "tos/result.h"
 
 #include <gtest/gtest.h>
-
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -21,12 +20,8 @@ struct AcceptsAnything {
 };
 
 struct AddressTrap {
-    AddressTrap* operator&() {
-        return nullptr;
-    }
-    const AddressTrap* operator&() const {
-        return nullptr;
-    }
+    AddressTrap* operator&() { return nullptr; }
+    const AddressTrap* operator&() const { return nullptr; }
     int number = 42;
 };
 

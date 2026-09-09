@@ -58,14 +58,10 @@ class [[nodiscard]] Result {
     }
 
     /// 持有成功值时返回 true，与值本身是否为 false 或空指针无关。
-    bool ok() const noexcept {
-        return storage_.index() == 0;
-    }
+    bool ok() const noexcept { return storage_.index() == 0; }
 
     /// 等价于 ok()，可用于 if (result) 等布尔判断。
-    explicit operator bool() const noexcept {
-        return ok();
-    }
+    explicit operator bool() const noexcept { return ok(); }
 
     /// 借用只读状态，不转移所有权；不要依赖引用在本对象被修改、移动或销毁后仍有效。
     /// 成功时返回 kOk；无活动值或错误已移走时返回对应的 kInternal 兜底状态。
@@ -133,34 +129,22 @@ class [[nodiscard]] Result {
     }
 
     /// 等价于 value()，返回可变借用引用并检查失败状态。
-    T& operator*() & {
-        return value();
-    }
+    T& operator*() & { return value(); }
 
     /// 等价于 value()，返回只读借用引用并检查失败状态。
-    const T& operator*() const& {
-        return value();
-    }
+    const T& operator*() const& { return value(); }
 
     /// 等价于 std::move(*this).value()，返回右值引用并检查失败状态。
-    T&& operator*() && {
-        return std::move(*this).value();
-    }
+    T&& operator*() && { return std::move(*this).value(); }
 
     /// 等价于 std::move(*this).value()，返回 const 右值引用并检查失败状态。
-    const T&& operator*() const&& {
-        return std::move(*this).value();
-    }
+    const T&& operator*() const&& { return std::move(*this).value(); }
 
     /// 返回成功值的可变借用指针；失败时抛出 std::logic_error。
-    T* operator->() {
-        return std::addressof(value());
-    }
+    T* operator->() { return std::addressof(value()); }
 
     /// 返回成功值的只读借用指针；失败时抛出 std::logic_error。
-    const T* operator->() const {
-        return std::addressof(value());
-    }
+    const T* operator->() const { return std::addressof(value()); }
 
    private:
     // Fallback references must remain valid during global destruction. Construct
