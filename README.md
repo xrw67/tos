@@ -12,6 +12,9 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - 支持 C++17 的编译器：Linux 使用 GCC，macOS 使用 Apple Clang，Windows 使用 MSVC。
 - macOS 安装 Xcode Command Line Tools；Windows 安装 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载。
 - GoogleTest 1.17.0 完整源码随仓库存放于 `third_party/googletest/`，使用 BSD-3-Clause 许可证；版本、来源和校验值记录在 [第三方库说明](third_party/README.md) 中。
+- nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/vendor/nlohmann/`；包含 `<tos/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
+- fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
+- fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
 - 配置和构建无需下载依赖，也无需初始化 Git 子模块。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
@@ -44,7 +47,7 @@ CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，�
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 通过 `add_subdirectory` 从仓库内源码构建。完整检出仓库后即可离线构建，不再使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML 和 fmt 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>` 与 `<tos/format.h>` 提供。完整检出仓库后即可离线构建，不再使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
 ### 接入其他工程
 

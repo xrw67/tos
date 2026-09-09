@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
+
 project(tos LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -8,6 +10,46 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BUILD_TESTING "Build tests" ${PROJECT_IS_TOP_LEVEL})
 option(TOS_BUILD_EXAMPLES "Build tos examples" ${PROJECT_IS_TOP_LEVEL})
+
+if(MSVC)
+    # 使用UNICODE字符集
+    add_definitions(-D_UNICODE -DUNICODE)
+
+    # 禁止代码优化
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Od /DNDEBUG")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Od /DNDEBUG")
+
+    # Release也生成pdb文件
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Zi")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE
+        "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE
+        "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
+
+    add_compile_options(
+        /utf-8 # 编译时使用UTF-8编码
+        /MP # 开启多线程编译
+        /W3 # 启用所有警告
+        /WX # 将警告视为错误
+        /DNOMINMAX # 禁用标准库提供的max和min
+        /DWIN32_LEAN_AND_MEAN # 减少头文件包含
+        /D_CRT_SECURE_NO_WARNINGS # 禁用安全函数
+        /D_SCL_SECURE_NO_WARNINGS #
+    )
+endif()
+
+if(LINUX)
+    # 设置RPATH: $ORIGIN表示App同级目录
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -rdynamic -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -rdynamic -g")
+
+    add_compile_options(-Wall -Wextra -Werror)
+
+    include(ccache) # 加载ccache
+endif()
 
 add_library(tos INTERFACE)
 add_library(tos::tos ALIAS tos)

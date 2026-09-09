@@ -184,7 +184,7 @@ TEST(StatusTest, MovesOwnershipAcrossStates) {
 }
 
 TEST(StatusTest, MovedMessagesSurviveSourceDestruction) {
-    for (const std::string text : {std::string("short"), std::string(1024, 'x')}) {
+    for (const std::string& text : {std::string("short"), std::string(1024, 'x')}) {
         Status survivor;
         {
             Status original(StatusCode::kInternal, text);
