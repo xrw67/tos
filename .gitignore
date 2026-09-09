@@ -1,4 +1,4 @@
-# Prerequisites
+# Dependency files
 *.d
 
 # Compiled Object files
@@ -13,16 +13,19 @@
 
 # Linker files
 *.ilk
+*.exp
 
 # Debugger Files
 *.pdb
+*.idb
+*.dwo
+*.dSYM/
 
 # Compiled Dynamic libraries
 *.so
 *.dylib
 *.dll
 *.so.*
-
 
 # Fortran module files
 *.mod
@@ -43,27 +46,57 @@
 build/
 Build/
 build-*/
+cmake-build-*/
 
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
+CMakeUserPresets.json
 cmake_install.cmake
 Makefile
 install_manifest.txt
 compile_commands.json
+CTestTestfile.cmake
+DartConfiguration.tcl
+
+# Ninja generated files
+build.ninja
+build-*.ninja
+rules.ninja
+.ninja_deps
+.ninja_log
 
 # Temporary files
 *.tmp
 *.log
 *.bak
 *.swp
+*.swo
+*~
 
 # vcpkg
 vcpkg_installed/
 
-# debug information files
-*.dwo
-
-# test output & cache
+# Test output, coverage and caches
 Testing/
 .cache/
+.ccache/
+coverage/
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+
+# IDE local state (keep shared editor and CMake preset configuration)
+.vs/
+*.vcxproj.user
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+
+# macOS and Windows metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,23 @@
+---
+Checks: >
+  -*,
+  clang-analyzer-*,
+  -clang-analyzer-core.uninitialized.Assign,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-move-forwarding-reference,
+  bugprone-multiple-statement-macro,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-memory-comparison,
+  bugprone-undefined-memory-manipulation,
+  bugprone-use-after-move,
+  performance-implicit-conversion-in-loop,
+  performance-inefficient-string-concatenation,
+  performance-inefficient-vector-operation,
+  performance-move-const-arg,
+  performance-no-int-to-ptr,
+  performance-type-promotion-in-math-fn
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/include/tos/.*'
+FormatStyle: file
+...

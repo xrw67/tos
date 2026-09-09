@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / Release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            configure_args: -DCMAKE_CXX_COMPILER=g++
+          - os: macos-14
+            configure_args: -DCMAKE_CXX_COMPILER=clang++
+          - os: windows-2022
+            configure_args: -G "Visual Studio 17 2022" -A x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DTOS_BUILD_EXAMPLES=ON
+          ${{ matrix.configure_args }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Header smoke test
+        run: ctest --test-dir build -C Release -L smoke --output-on-failure --no-tests=error --timeout 30
+
+      - name: Run example
+        run: ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
