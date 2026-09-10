@@ -20,7 +20,7 @@
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
 | 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
 | 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 未开始 |
-| Foundation 扩展 | `ByteSpan`、内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 未开始 |
+| Foundation 扩展 | 内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 未开始 |
 | 可观测性 | Counter/Gauge/Histogram、Prometheus 文本、Health、trace/span、W3C 与可选 OpenTelemetry | 未开始 |
 | Network | Boost.Asio TCP listener/socket、UDP、IPv4/IPv6、部分 I/O、超时和取消 | 未开始 |
 | IPC | Unix domain socket、Windows named pipe、共享内存和跨进程锁 | 未开始 |
@@ -77,7 +77,7 @@
 
 ### P3：补齐通用 Foundation 与可观测性
 
-- [ ] `P3-01` 实现 `ByteSpan`、标准 PMR 适配、带统计的内存资源和内存池；先避免自定义分配器复杂度进入 P1/P2。
+- [ ] `P3-01` 实现标准 PMR 适配、带统计的内存资源和内存池；先避免自定义分配器复杂度进入 P1/P2。
   - 验收：对齐、容量耗尽、上游失败、统计和借用地址失效规则可测。
 - [ ] `P3-02` 实现 JSON 与版本化、固定字节序的二进制 codec；Protobuf 仅作为可选 feature。
   - 验收：兼容性 fixture、畸形输入和版本/类型拒绝测试通过。

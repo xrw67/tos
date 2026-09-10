@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -15,6 +15,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/tos/vendor/nlohmann/`；包含 `<tos/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
 - fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
 - fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
+- span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
 - 配置和构建无需下载依赖，也无需初始化 Git 子模块。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
@@ -47,7 +48,7 @@ CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，�
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML 和 fmt 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>` 与 `<tos/format.h>` 提供。完整检出仓库后即可离线构建，不再使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>`、`<tos/format.h>` 与 `<tos/span.h>` 提供。完整检出仓库后即可离线构建，不再使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
 ### 接入其他工程
 
@@ -208,6 +209,33 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 - 移动后的源 Status 现在变为成功状态；移动后的失败 Result 则报告错误已被移走的 `kInternal`，不再保留原错误码。
 - Status 和 Result 的对象布局发生变化，所有使用方必须重新编译，不与旧构建产物保持 ABI 兼容。
 - `StatusCode` 增加了可操作的失败类别；既有 `kOk`、`kInvalidArgument`、`kNotFound`、`kTimeout` 和 `kInternal` 的数值保持不变。错误码语义参考通用 RPC 约定，但不承诺与 Abseil 的枚举数值或 ABI 兼容。
+
+## Span
+
+`<tos/span.h>` 提供 C++20 风格的 `tos::span<T, Extent>` 和运行时长度哨兵
+`tos::dynamic_extent`，可在 C++17 中表示连续内存的非拥有视图。视图不会延长
+数组、`std::array`、`std::vector` 或其他连续容器的生命周期；调用方必须确保底层
+存储在 span 及其子视图使用期间保持有效。它不提供同步，跨线程访问遵守底层存储的
+并发规则。
+
+```cpp
+#include "tos/span.h"
+
+#include <vector>
+
+void increment(tos::span<int> values) {
+    for (int& value : values) {
+        ++value;
+    }
+}
+
+std::vector<int> values = {1, 2, 3};
+increment(values);
+```
+
+span 本身不分配内存。由 C 数组、`std::array`、指针加长度以及标准连续容器构造时
+不抛异常；若传入自定义容器，则其 `data()` 或 `size()` 的异常会直接传播。越界元素
+访问和无效子视图违反前置条件。该接口在 Linux、macOS 与 Windows 上具有相同行为。
 
 ## 时间
 

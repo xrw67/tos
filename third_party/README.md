@@ -69,3 +69,20 @@ runtime library, separate CMake target, or network download. When updating eithe
 header-only dependency, verify the release archive and vendored header checksums,
 replace the public headers and license from that archive, and run the tests on all
 three platforms.
+
+## span-lite
+
+- Public include directory: `../include/tos/vendor/nonstd/`
+- Version: `0.11.0` (upstream tag `v0.11.0`)
+- Upstream: https://github.com/nonstd-lite/span-lite
+- Source archive: https://codeload.github.com/nonstd-lite/span-lite/tar.gz/refs/tags/v0.11.0
+- Archive SHA-256: `ef4e028e18ff21044da4b4641ca1bc8a2e2d656e2028322876c0e1b9b6904f9d`
+- Vendored files: upstream `include/nonstd/span.hpp` and `LICENSE.txt` only
+- Header SHA-256: `c8ad2bd66c33426e5792dcc3d450f76bbba468dc8ec433856df05e8ab302e67e`
+- License: [Boost Software License 1.0](../include/tos/vendor/nonstd/LICENSE.txt)
+- Local modifications: none
+
+`<tos/span.h>` exposes `tos::span<T, Extent>` and `tos::dynamic_extent` over
+span-lite. It requires no runtime library, separate CMake target, or network
+download. The view is non-owning; its caller remains responsible for the lifetime
+and synchronization of the referenced storage.

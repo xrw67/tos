@@ -6,6 +6,7 @@ add_executable(tos_unit_tests
     nlohmann_json_test.cpp
     fkyaml_test.cpp
     fmt_test.cpp
+    span_test.cpp
 )
 
 target_link_libraries(
