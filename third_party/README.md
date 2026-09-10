@@ -1,7 +1,8 @@
 # Third-Party Libraries
 
-Dependencies are stored as source code in this directory and committed with tos.
-CMake builds them locally; no dependency download or Git submodule setup is needed.
+Vendored dependencies are stored as source code in this directory and committed
+with tos. The crypto component additionally requires a system-installed OpenSSL
+development package; CMake never downloads dependencies or uses Git submodules.
 
 ## GoogleTest
 
@@ -86,3 +87,18 @@ three platforms.
 span-lite. It requires no runtime library, separate CMake target, or network
 download. The view is non-owning; its caller remains responsible for the lifetime
 and synchronization of the referenced storage.
+
+## OpenSSL
+
+- Delivery: system development package, not vendored
+- Minimum version: `3.0`
+- Upstream: https://www.openssl.org/
+- License: Apache License 2.0; see the system package's distributed license
+- CMake requirement: `find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)`
+
+`tos::crypto` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
+`<tos/crypto.h>`. Consumers need the OpenSSL headers and `libcrypto` available
+when configuring and linking. This dependency is discovered locally and is never
+downloaded by tos. Because it is supplied by the build environment, no vendored
+archive checksum applies; deployments must track their package manager's OpenSSL
+security updates.

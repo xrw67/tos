@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 组件；并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -16,7 +16,8 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
 - fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
 - span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
-- 配置和构建无需下载依赖，也无需初始化 Git 子模块。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
+- OpenSSL 3.0 或更新版本的开发包，包含头文件和 `libcrypto`。macOS 使用 `brew install openssl@3` 后应以 `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)` 配置；Windows 需要提供与 MSVC 架构匹配的 OpenSSL 开发包。
+- 配置和构建不会下载依赖，也无需初始化 Git 子模块；OpenSSL 必须由环境预先安装。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
 
@@ -29,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、Time 和 Duration 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、Unix 时间规范化、RFC3339 和手动时钟；`example` 检查最小示例退出码为 0，且输出为 `tos example ready`。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、Crypto、Time、Duration 和 Config 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339 和手动时钟；`example` 检查最小示例退出码为 0，且输出为 `tos example ready`。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -38,7 +39,7 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时只提供接口库，不生成可执行文件或静态库。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto` 静态库，以实现 `tos::tos` 导出的加密 API。
 
 ### 编写单元测试
 
@@ -48,7 +49,7 @@ CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，�
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>`、`<tos/format.h>` 与 `<tos/span.h>` 提供。完整检出仓库后即可离线构建，不再使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>`、`<tos/format.h>` 与 `<tos/span.h>` 提供。`<tos/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现。完整检出且已安装 OpenSSL 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
 ### 接入其他工程
 
@@ -236,6 +237,39 @@ increment(values);
 span 本身不分配内存。由 C 数组、`std::array`、指针加长度以及标准连续容器构造时
 不抛异常；若传入自定义容器，则其 `data()` 或 `size()` 的异常会直接传播。越界元素
 访问和无效子视图违反前置条件。该接口在 Linux、macOS 与 Windows 上具有相同行为。
+
+## 加密
+
+`<tos/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
+十六进制文本的 `HashHex()`、严格 RFC 4648
+Base64/Base64url、RSA 和 Ed25519。二进制输入为 `tos::span<const std::uint8_t>`，
+所有可预期失败通过 `Result` 或 `Status` 返回；输出缓冲区和文本的分配异常仍按 C++
+异常传播。Base64 标准变体必须带规范 `=` 填充，Base64url 必须无填充，两个解码器均
+拒绝空白、混合字母表和非规范 pad bits。
+
+```cpp
+#include "tos/crypto.h"
+
+#include <cstdint>
+#include <vector>
+
+const std::vector<std::uint8_t> data = {'t', 'o', 's'};
+const auto digest = tos::HashHex(tos::HashAlgorithm::kSha256, tos::span<const std::uint8_t>(data));
+if (!digest) {
+    return 1;
+}
+```
+
+MD5 和 SHA-1 仅为遗留协议兼容保留；新的安全设计必须选择 SHA-256、SHA-384 或
+SHA-512。RSA 仅支持至少 2048 位密钥、RSA-PSS/SHA-256 签名和
+RSA-OAEP-SHA-256 加密，禁用 PKCS#1 v1.5；Ed25519 仅支持标准纯签名。密钥对象为
+move-only 且拥有原生密钥，const 加密操作可并发调用；移动、销毁或修改同一对象需要
+调用方同步。
+
+私钥只接受和输出未加密 PEM（PKCS#8 私钥、SPKI 公钥）；不支持 DER、证书、文件
+I/O、口令处理或流式摘要。库不擦除调用方提供的 PEM，也不承诺擦除返回的私钥、明文、
+签名或摘要缓冲区，调用方负责敏感数据的生命周期和存储策略。签名或 RSA-OAEP 密文
+校验失败返回 `kUnauthenticated`，且不会暴露 OpenSSL 原始错误信息。
 
 ## 时间
 

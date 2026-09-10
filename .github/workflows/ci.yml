@@ -27,6 +27,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install OpenSSL development files
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      - name: Install OpenSSL 3
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Locate OpenSSL on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = 'C:\Program Files\OpenSSL-Win64'
+          if (Test-Path "$root\include\openssl\evp.h") {
+            "OPENSSL_ROOT_DIR=$root" >> $env:GITHUB_ENV
+          }
+          openssl version
+
       - name: Configure
         run: >-
           cmake -S . -B build
