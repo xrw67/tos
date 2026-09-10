@@ -11,11 +11,23 @@ namespace tos {
 
 /// 操作结果的错误码；仅 kOk 表示成功。
 enum class StatusCode {
-    kOk = 0,               ///< 操作成功。
-    kInvalidArgument = 1,  ///< 参数不合法。
-    kNotFound = 2,         ///< 请求的资源不存在。
-    kTimeout = 3,          ///< 操作超时。
-    kInternal = 4,         ///< 内部错误。
+    kOk = 0,                   ///< 操作成功。
+    kInvalidArgument = 1,      ///< 参数不合法。
+    kNotFound = 2,             ///< 请求的资源不存在。
+    kTimeout = 3,              ///< 操作超过其 deadline 或等待超时。
+    kInternal = 4,             ///< 库或应用内部错误。
+    kCancelled = 5,            ///< 操作被调用方或关闭流程取消。
+    kUnknown = 6,              ///< 已知失败，但无法归入其他错误码。
+    kAlreadyExists = 7,        ///< 待创建的资源已经存在。
+    kPermissionDenied = 8,     ///< 身份已知，但无权执行该操作。
+    kUnauthenticated = 9,      ///< 操作需要身份认证，或提供的身份无效。
+    kResourceExhausted = 10,   ///< 可恢复的配额、容量或速率限制耗尽。
+    kFailedPrecondition = 11,  ///< 系统状态不满足操作前提。
+    kAborted = 12,             ///< 并发冲突等短暂中止；整体操作可重试。
+    kOutOfRange = 13,          ///< 输入或迭代位置超出有效范围。
+    kUnimplemented = 14,       ///< 操作或平台能力尚未实现。
+    kUnavailable = 15,         ///< 服务或依赖暂时不可用；调用方可重试。
+    kDataLoss = 16,            ///< 检测到不可恢复的数据损坏或丢失。
 };
 
 /// 无返回值操作的结果，独占错误信息，只支持移动；调用方应检查返回状态。
@@ -91,6 +103,42 @@ class [[nodiscard]] Status {
             case StatusCode::kInternal:
                 text = "INTERNAL";
                 break;
+            case StatusCode::kCancelled:
+                text = "CANCELLED";
+                break;
+            case StatusCode::kUnknown:
+                text = "UNKNOWN";
+                break;
+            case StatusCode::kAlreadyExists:
+                text = "ALREADY_EXISTS";
+                break;
+            case StatusCode::kPermissionDenied:
+                text = "PERMISSION_DENIED";
+                break;
+            case StatusCode::kUnauthenticated:
+                text = "UNAUTHENTICATED";
+                break;
+            case StatusCode::kResourceExhausted:
+                text = "RESOURCE_EXHAUSTED";
+                break;
+            case StatusCode::kFailedPrecondition:
+                text = "FAILED_PRECONDITION";
+                break;
+            case StatusCode::kAborted:
+                text = "ABORTED";
+                break;
+            case StatusCode::kOutOfRange:
+                text = "OUT_OF_RANGE";
+                break;
+            case StatusCode::kUnimplemented:
+                text = "UNIMPLEMENTED";
+                break;
+            case StatusCode::kUnavailable:
+                text = "UNAVAILABLE";
+                break;
+            case StatusCode::kDataLoss:
+                text = "DATA_LOSS";
+                break;
             default:
                 text = "UNKNOWN(";
                 text.append(std::to_string(static_cast<int>(code())));
@@ -126,6 +174,60 @@ class [[nodiscard]] Status {
     // Null is success; every error exclusively owns its representation.
     std::unique_ptr<ErrorRep> rep_;
 };
+
+/// Returns whether status has exactly the corresponding StatusCode.
+///
+/// These classifiers do not allocate, throw, modify status, or retain a reference to it.
+/// IsUnknown only matches StatusCode::kUnknown; an unrecognized enum value matches none.
+[[nodiscard]] inline bool IsOk(const Status& status) noexcept { return status.ok(); }
+[[nodiscard]] inline bool IsCancelled(const Status& status) noexcept {
+    return status.code() == StatusCode::kCancelled;
+}
+[[nodiscard]] inline bool IsUnknown(const Status& status) noexcept {
+    return status.code() == StatusCode::kUnknown;
+}
+[[nodiscard]] inline bool IsInvalidArgument(const Status& status) noexcept {
+    return status.code() == StatusCode::kInvalidArgument;
+}
+[[nodiscard]] inline bool IsNotFound(const Status& status) noexcept {
+    return status.code() == StatusCode::kNotFound;
+}
+[[nodiscard]] inline bool IsAlreadyExists(const Status& status) noexcept {
+    return status.code() == StatusCode::kAlreadyExists;
+}
+[[nodiscard]] inline bool IsPermissionDenied(const Status& status) noexcept {
+    return status.code() == StatusCode::kPermissionDenied;
+}
+[[nodiscard]] inline bool IsUnauthenticated(const Status& status) noexcept {
+    return status.code() == StatusCode::kUnauthenticated;
+}
+[[nodiscard]] inline bool IsResourceExhausted(const Status& status) noexcept {
+    return status.code() == StatusCode::kResourceExhausted;
+}
+[[nodiscard]] inline bool IsFailedPrecondition(const Status& status) noexcept {
+    return status.code() == StatusCode::kFailedPrecondition;
+}
+[[nodiscard]] inline bool IsAborted(const Status& status) noexcept {
+    return status.code() == StatusCode::kAborted;
+}
+[[nodiscard]] inline bool IsOutOfRange(const Status& status) noexcept {
+    return status.code() == StatusCode::kOutOfRange;
+}
+[[nodiscard]] inline bool IsUnimplemented(const Status& status) noexcept {
+    return status.code() == StatusCode::kUnimplemented;
+}
+[[nodiscard]] inline bool IsInternal(const Status& status) noexcept {
+    return status.code() == StatusCode::kInternal;
+}
+[[nodiscard]] inline bool IsUnavailable(const Status& status) noexcept {
+    return status.code() == StatusCode::kUnavailable;
+}
+[[nodiscard]] inline bool IsDataLoss(const Status& status) noexcept {
+    return status.code() == StatusCode::kDataLoss;
+}
+[[nodiscard]] inline bool IsTimeout(const Status& status) noexcept {
+    return status.code() == StatusCode::kTimeout;
+}
 
 }  // namespace tos
 

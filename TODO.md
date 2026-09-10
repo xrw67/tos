@@ -14,7 +14,7 @@
 
 | 能力域 | Pallas 的公开能力 | tos 状态 |
 | --- | --- | --- |
-| 错误与结果 | 结构化 `Error`（域、原生码、根因）、`Result<T>`/`Result<void>`、Abseil 兼容 | 已完成：保留 tos 自身的 `Status`/`Result<T>`；不移植 Pallas 错误模型 |
+| 错误与结果 | 结构化 `Error`（域、原生码、根因）、`Result<T>`/`Result<void>`、Abseil 兼容 | 部分完成：保留 tos 自身的 move-only `Status`/`Result<T>`，并提供可操作的错误码分类与只读谓词；不移植 Pallas 错误模型。仍需补充传播辅助工具，结构化 payload 留待有原生错误信息需求时实现 |
 | Core | `Application`、`Runtime`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 未开始 |
 | 通信 | 生命周期安全的 `ServiceRegistry`/handle、异步 FIFO `EventBus`、RAII 订阅和背压 | 未开始 |
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
@@ -36,6 +36,10 @@
   - 验收：公开头独立包含；每个新增 API 在合同中有失败与生命周期说明。
 - [x] `P0-02` 错误模型决策：保留现有 move-only `tos::Status` 与 `tos::Result<T>`；无返回值继续使用 `Status`，不支持 `Result<void>`，不引入 Pallas 的 `Error` 或 `Result`。
   - 验收：当前 Status/Result 测试和 README 中的移动、分配、值访问及失败路径合同继续成立；后续组件只能返回 tos 类型。
+- [x] `P0-02a` 扩展 `StatusCode` 与无分配分类谓词：保留现有枚举值和 `kTimeout` 的超时/截止时间语义，新增 `kCancelled`、`kUnknown`、`kAlreadyExists`、`kPermissionDenied`、`kUnauthenticated`、`kResourceExhausted`、`kFailedPrecondition`、`kAborted`、`kOutOfRange`、`kUnimplemented`、`kUnavailable` 和 `kDataLoss`，并提供对应的只读谓词。
+  - 验收：每个错误码在 API 合同中有明确的调用方处理语义，`ToString()`、比较、移动、`Result<T>` 传播和未知枚举值都有测试；0.x 迁移说明明确既有数值不变且不承诺 Abseil 枚举或 ABI 兼容。
+- [ ] `P0-02b` 提供 `Status`/`Result<T>` 传播辅助工具：增加经测试的 `TOS_RETURN_IF_ERROR` 和 `TOS_ASSIGN_OR_RETURN` 宏或等价 C++17 接口，避免调用方手写易错的 move-only 错误传播。
+  - 验收：操作数恰好求值一次，错误以 `std::move` 传播，成功值可移动提取；在 `if`/`else`、临时对象、命名对象和异常构造路径中均有编译与运行测试，宏不耦合 logger 或其他 Runtime 组件。
 - [ ] `P0-03` 将单一 `tos` interface target 演进为按组件划分的 targets，并保留 `tos::tos` 聚合目标；禁止 Foundation/Task/Platform/Network/IPC 反向依赖 Runtime 或扩展。
   - 验收：配置期 target 依赖检查；minimal 与 full feature 图均可构建。
 - [ ] `P0-04` 增加安装、导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。
@@ -83,6 +87,8 @@
   - 验收：指标注册冲突、标签、并发更新、快照和健康检查 deadline 都有测试。
 - [ ] `P3-05` 实现本地 Tracer、move-only Span、W3C `traceparent` 注入/提取；OpenTelemetry exporter 作为可选 feature。
   - 验收：父子关系、恰好一次导出、属性/事件/状态、非法与全零 trace ID 都有测试。
+- [ ] `P3-06` 按实际的 Platform、Network 或 IPC 需求为失败 `Status` 增加命名的二进制 payload：用于保留原生错误码、HTTP 状态或可重试等机器可读上下文；不引入 Abseil 类型或改变 move-only 所有权。
+  - 验收：键命名规则、`kOk` 行为、覆盖/删除/遍历、带嵌入空字符的 payload、借用视图的生命周期和移动后行为都有合同与测试；至少一个真实平台或 I/O 适配器验证原生错误信息能保留并被调用方读取。
 
 ### P4：跨平台 I/O、IPC 与宿主能力
 
@@ -115,4 +121,4 @@
 
 ## 首个可执行迭代
 
-先完成 `P0-01` 至 `P0-05`，随后实施 `P1-01`、`P1-02`、`P1-03`、`P1-05` 和一个“读取配置并记录日志”的 CLI 示例。该迭代会把现有错误模型、配置、日志、构建分发和测试合同连成可用的 MVP；`Runtime`、线程池和网络留待其公共基础契约稳定后再加入。
+先完成全部 P0 条目，随后实施 `P1-01`、`P1-02`、`P1-03`、`P1-05` 和一个“读取配置并记录日志”的 CLI 示例。该迭代会把现有错误模型、配置、日志、构建分发和测试合同连成可用的 MVP；`Runtime`、线程池和网络留待其公共基础契约稳定后再加入。

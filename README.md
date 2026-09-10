@@ -137,10 +137,24 @@ int main() {
 | 错误码 | 数值 | 含义 |
 | --- | --- | --- |
 | `StatusCode::kOk` | 0 | 成功 |
+| `StatusCode::kCancelled` | 5 | 操作被调用方或关闭流程取消 |
+| `StatusCode::kUnknown` | 6 | 已知失败，但无法归入其他错误码 |
 | `StatusCode::kInvalidArgument` | 1 | 参数错误 |
-| `StatusCode::kNotFound` | 2 | 资源不存在 |
-| `StatusCode::kTimeout` | 3 | 操作超时 |
-| `StatusCode::kInternal` | 4 | 内部错误 |
+| `StatusCode::kTimeout` | 3 | 操作超过 deadline 或等待超时 |
+| `StatusCode::kNotFound` | 2 | 请求的资源不存在 |
+| `StatusCode::kAlreadyExists` | 7 | 待创建的资源已经存在 |
+| `StatusCode::kPermissionDenied` | 8 | 身份已知，但没有执行操作的权限 |
+| `StatusCode::kUnauthenticated` | 9 | 需要身份认证或身份无效 |
+| `StatusCode::kResourceExhausted` | 10 | 可恢复的配额、容量或速率限制耗尽 |
+| `StatusCode::kFailedPrecondition` | 11 | 系统状态不满足操作前提 |
+| `StatusCode::kAborted` | 12 | 并发冲突等短暂中止，整体操作可重试 |
+| `StatusCode::kOutOfRange` | 13 | 输入或迭代位置超出有效范围 |
+| `StatusCode::kUnimplemented` | 14 | 操作或平台能力尚未实现 |
+| `StatusCode::kInternal` | 4 | 库或应用内部错误 |
+| `StatusCode::kUnavailable` | 15 | 服务或依赖暂时不可用，调用方可重试 |
+| `StatusCode::kDataLoss` | 16 | 检测到不可恢复的数据损坏或丢失 |
+
+`tos::IsNotFound(status)`、`tos::IsUnavailable(status)` 等分类函数无分配且不修改状态，适合表达调用方分支。每个函数仅匹配对应的枚举值；`IsUnknown()` 不会把未识别的整数枚举值视为 `kUnknown`。
 
 相等比较先检查是否具有相同表示，再比较错误码和消息内容。Status 禁止复制构造和复制赋值，只支持移动；移动转移所有权，源对象变为成功状态，自移动不改变内容。默认构造、`Status::Ok()`、移动和析构均不抛异常；所有错误状态的首次构造都需要分配，即使没有消息也可能抛出 `std::bad_alloc`。接受错误码的构造函数因此不标记 `noexcept`，但传入 `kOk` 时不会分配。
 
@@ -193,6 +207,7 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 - 接受错误码的 Status 构造均可能因分配失败抛出异常，包括无消息错误和字符串右值消息，因此不标记 `noexcept`。
 - 移动后的源 Status 现在变为成功状态；移动后的失败 Result 则报告错误已被移走的 `kInternal`，不再保留原错误码。
 - Status 和 Result 的对象布局发生变化，所有使用方必须重新编译，不与旧构建产物保持 ABI 兼容。
+- `StatusCode` 增加了可操作的失败类别；既有 `kOk`、`kInvalidArgument`、`kNotFound`、`kTimeout` 和 `kInternal` 的数值保持不变。错误码语义参考通用 RPC 约定，但不承诺与 Abseil 的枚举数值或 ABI 兼容。
 
 ## 时间
 

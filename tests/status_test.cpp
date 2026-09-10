@@ -11,9 +11,30 @@ namespace {
 struct StatusStringCase {
     StatusCode code;
     const char* name;
+    bool (*matches)(const Status&) noexcept;
 };
 
 class StatusStringTest : public testing::TestWithParam<StatusStringCase> {};
+
+constexpr StatusStringCase kStatusStringCases[] = {
+    {StatusCode::kOk, "OK", IsOk},
+    {StatusCode::kCancelled, "CANCELLED", IsCancelled},
+    {StatusCode::kUnknown, "UNKNOWN", IsUnknown},
+    {StatusCode::kInvalidArgument, "INVALID_ARGUMENT", IsInvalidArgument},
+    {StatusCode::kTimeout, "TIMEOUT", IsTimeout},
+    {StatusCode::kNotFound, "NOT_FOUND", IsNotFound},
+    {StatusCode::kAlreadyExists, "ALREADY_EXISTS", IsAlreadyExists},
+    {StatusCode::kPermissionDenied, "PERMISSION_DENIED", IsPermissionDenied},
+    {StatusCode::kUnauthenticated, "UNAUTHENTICATED", IsUnauthenticated},
+    {StatusCode::kResourceExhausted, "RESOURCE_EXHAUSTED", IsResourceExhausted},
+    {StatusCode::kFailedPrecondition, "FAILED_PRECONDITION", IsFailedPrecondition},
+    {StatusCode::kAborted, "ABORTED", IsAborted},
+    {StatusCode::kOutOfRange, "OUT_OF_RANGE", IsOutOfRange},
+    {StatusCode::kUnimplemented, "UNIMPLEMENTED", IsUnimplemented},
+    {StatusCode::kInternal, "INTERNAL", IsInternal},
+    {StatusCode::kUnavailable, "UNAVAILABLE", IsUnavailable},
+    {StatusCode::kDataLoss, "DATA_LOSS", IsDataLoss},
+};
 
 TEST_P(StatusStringTest, FormatsCodeWithoutMessage) {
     const auto& param = GetParam();
@@ -23,6 +44,7 @@ TEST_P(StatusStringTest, FormatsCodeWithoutMessage) {
     EXPECT_EQ(static_cast<bool>(status), status.ok());
     EXPECT_EQ(status.code(), param.code);
     EXPECT_TRUE(status.message().empty());
+    EXPECT_TRUE(param.matches(status));
 }
 
 TEST_P(StatusStringTest, FormatsCodeWithMessage) {
@@ -37,16 +59,28 @@ TEST_P(StatusStringTest, FormatsCodeWithMessage) {
     EXPECT_EQ(static_cast<bool>(status), status.ok());
     EXPECT_EQ(status.code(), param.code);
     EXPECT_EQ(status.message(), param.code == StatusCode::kOk ? "" : "operation failed");
+    EXPECT_TRUE(param.matches(status));
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    Codes, StatusStringTest,
-    testing::Values(StatusStringCase{StatusCode::kOk, "OK"},
-                    StatusStringCase{StatusCode::kInvalidArgument, "INVALID_ARGUMENT"},
-                    StatusStringCase{StatusCode::kNotFound, "NOT_FOUND"},
-                    StatusStringCase{StatusCode::kTimeout, "TIMEOUT"},
-                    StatusStringCase{StatusCode::kInternal, "INTERNAL"}),
-    [](const testing::TestParamInfo<StatusStringCase>& info) { return info.param.name; });
+INSTANTIATE_TEST_SUITE_P(Codes, StatusStringTest, testing::ValuesIn(kStatusStringCases),
+                         [](const testing::TestParamInfo<StatusStringCase>& info) {
+                             return info.param.name;
+                         });
+
+TEST(StatusTest, ClassificationPredicatesMatchOnlyTheirCode) {
+    for (const StatusStringCase& expected : kStatusStringCases) {
+        const Status status(expected.code);
+        for (const StatusStringCase& candidate : kStatusStringCases) {
+            EXPECT_EQ(candidate.matches(status), candidate.code == expected.code)
+                << "status=" << expected.name << ", predicate=" << candidate.name;
+        }
+    }
+
+    const Status unknown_value(static_cast<StatusCode>(99));
+    for (const StatusStringCase& candidate : kStatusStringCases) {
+        EXPECT_FALSE(candidate.matches(unknown_value)) << candidate.name;
+    }
+}
 
 TEST(StatusTest, ToStringPreservesLongMessagesAndNullBytes) {
     for (const auto& message : {std::string(1024, 'x'), std::string("before\0after", 12)}) {
