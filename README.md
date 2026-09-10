@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`Time` 和 `Duration`，并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -217,6 +217,65 @@ if (deadline) {
 `IClock` 允许依赖注入；`SystemClock` 读取系统 UTC 时钟，可能随系统校时倒退；`ManualClock` 用于确定性的测试或调度，支持线程安全的 `Now()`、`Set()` 和有溢出检查的 `Advance()`；`MonotonicClock::Elapsed()` 基于 `std::chrono::steady_clock` 测量单调耗时，不能转换为 UTC。本实现没有 Go `Time` 的 location 或隐藏单调读数，格式化和解析不读取进程时区。
 
 所有值类型均不持有外部资源，复制和并发只读安全。`SystemClock`、`ManualClock::Now` 和 `ManualClock::Set` 不抛异常；字符串格式化的分配异常以及构造错误 `Status` 的分配异常会直接传播。
+
+## 配置
+
+`<tos/config.h>` 提供 JSON/YAML 的只读配置树。`Config::Parse()` 仅接受 object/mapping 根节点，并把 JSON 与 YAML 解析失败、YAML 非字符串 mapping key、带 tag 的 YAML 节点、路径和类型错误转换为 `Status`：缺失路径为 `kNotFound`，其余预期输入错误为 `kInvalidArgument`。错误信息包含输入来源和（读取错误时）完整点路径。YAML 锚点或别名只要能展开为此树即可使用。分配失败仍按 C++ 异常传播。
+
+路径使用 `.` 分隔 object key，并可在数组处使用十进制索引；字面 `.` 和反斜杠分别写成 `\\.` 与 `\\\\`。键名保持大小写敏感。`Has()` 是便捷存在性检查，缺失或路径格式错误都返回 `false`；需要区分错误时使用对应的 `Get*` 接口。`GetBool`、`GetInt64`、`GetDouble` 和 `GetString` 都要求节点类型精确匹配；`GetUint64` 还接受可无损表示的非负有符号整数，不进行字符串、布尔和浮点转换。
+
+```cpp
+#include <tos/config.h>
+
+const auto parsed = tos::Config::Parse(
+    "service:\n  host: localhost\n  ports: [8080, 8443]\n",
+    tos::ConfigFormat::kYaml, "app.yaml");
+if (!parsed) {
+    return 1;
+}
+const tos::Config config = parsed.value();
+const auto port = config.GetInt64("service.ports.1");
+if (!port) {
+    return 1;
+}
+
+tos::ConfigStore store(config);
+const tos::Status reloaded = store.Reload(R"({"service":{"ports":[9000]}})",
+                                          tos::ConfigFormat::kJson, "next.json");
+if (!reloaded) {
+    return 1;
+}
+const tos::Config snapshot = store.Snapshot();
+```
+
+`Config::Merge()` 递归合并双方都是 object 的字段；数组、null、标量和类型不一致字段由 overlay 完整替换，两个输入不会被修改。`ConfigStore` 使用原子共享指针发布完整不可变快照，读取可与 reload 并发，且只会观察旧树或完整新树。
+
+`LayeredConfig` 将具名的 `ConfigLayer` 组合为只读快照，适用于自行准备好的默认值、文件内容或其他配置来源。层标签必须非空且在同一集合中唯一。优先级数值越小，覆盖能力越强；同一优先级时，输入 vector 中靠后的层优先。对象递归合并，数组、null、标量和类型不一致值由高优先级层整体替换。`Snapshot()` 返回可独立保留的 `Config`，`SourceOf(path)` 返回定义最终路径的最高优先级层标签；对于由多个层合并的 object，它表示包含该 object 路径的最高优先级层，不表示整个子树只来自该层。
+
+```cpp
+auto defaults = tos::Config::Parse(R"({"service":{"host":"localhost","port":80}})",
+                                   tos::ConfigFormat::kJson, "defaults");
+auto file = tos::Config::Parse(R"({"service":{"port":443}})", tos::ConfigFormat::kJson,
+                               "app.json");
+if (!defaults || !file) {
+    return 1;
+}
+auto layered = tos::LayeredConfig::Create({
+    {"defaults", 100, std::move(defaults).value()},
+    {"file", 10, std::move(file).value()},
+});
+if (!layered) {
+    return 1;
+}
+const tos::Config effective = layered.value().Snapshot();
+const auto source = layered.value().SourceOf("service.port");  // "file"
+const auto port = effective.GetInt64("service.port");
+if (!source || !port || source.value() != "file" || port.value() != 443) {
+    return 1;
+}
+```
+
+`LayeredConfig` 的层集合不可变，副本共享同一状态并支持并发读取；替换配置时，构造新的 `LayeredConfig` 并把其 `Snapshot()` 发布到 `ConfigStore`。它不读取文件、不监听文件，也不读取环境变量或命令行参数；这些能力仍留待后续组件实现。所有预期输入失败通过 `Result` 的 `Status` 报告，字符串、容器和合并树所需的分配异常会直接传播。
 
 ## 基础需求草案
 
