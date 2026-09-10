@@ -12,9 +12,9 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - 支持 C++17 的编译器：Linux 使用 GCC，macOS 使用 Apple Clang，Windows 使用 MSVC。
 - macOS 安装 Xcode Command Line Tools；Windows 安装 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载。
 - GoogleTest 1.17.0 完整源码随仓库存放于 `third_party/googletest/`，使用 BSD-3-Clause 许可证；版本、来源和校验值记录在 [第三方库说明](third_party/README.md) 中。
-- nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/vendor/nlohmann/`；包含 `<tos/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
-- fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
-- fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
+- nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/tos/vendor/nlohmann/`；包含 `<tos/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
+- fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
+- fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
 - 配置和构建无需下载依赖，也无需初始化 Git 子模块。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
@@ -96,8 +96,8 @@ target_link_libraries(your_app PRIVATE tos::tos)
 无返回值操作使用 `tos::Status`，有返回值操作使用 `tos::Result<T>`。两个类型都标记了 `[[nodiscard]]`，提醒调用方处理返回结果；无需额外链接库。
 
 ```cpp
-#include <tos/result.h>
-#include <tos/status.h>
+#include "tos/result.h"
+#include "tos/status.h"
 
 #include <iostream>
 #include <string>
@@ -201,7 +201,7 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 `tos::Time` 是可复制、不可变的 UTC 瞬时值，也以 Unix epoch 起的有符号纳秒保存。`FromUnix(seconds, nanoseconds)` 与 Go 一样规范化纳秒分量，`Unix()`、`UnixMilliseconds()` 和 `UnixMicroseconds()` 对 epoch 前的非整单位向下取整；也提供 Go 命名的 `UnixMilli()`、`UnixMicro()` 和 `UnixNano()` 别名。`Add()` 和 `Sub()` 处理时间范围溢出时返回 `Result`，不静默回绕。`FormatRfc3339()` 始终输出 UTC `Z` 后缀；`ParseRfc3339()` 支持 UTC 和数值偏移输入，返回归一化的 UTC 值。
 
 ```cpp
-#include <tos/time.h>
+#include "tos/time.h"
 
 const auto delay = tos::ParseDuration("1h2m3.4s");
 const auto started = tos::ParseRfc3339("2026-09-09T08:00:00+08:00");
@@ -225,7 +225,7 @@ if (deadline) {
 路径使用 `.` 分隔 object key，并可在数组处使用十进制索引；字面 `.` 和反斜杠分别写成 `\\.` 与 `\\\\`。键名保持大小写敏感。`Has()` 是便捷存在性检查，缺失或路径格式错误都返回 `false`；需要区分错误时使用对应的 `Get*` 接口。`GetBool`、`GetInt64`、`GetDouble` 和 `GetString` 都要求节点类型精确匹配；`GetUint64` 还接受可无损表示的非负有符号整数，不进行字符串、布尔和浮点转换。
 
 ```cpp
-#include <tos/config.h>
+#include "tos/config.h"
 
 const auto parsed = tos::Config::Parse(
     "service:\n  host: localhost\n  ports: [8080, 8443]\n",

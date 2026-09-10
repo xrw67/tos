@@ -13,10 +13,10 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include <vendor/fkyaml/node.hpp>
-#include <vendor/nlohmann/json.hpp>
 
 #include "tos/result.h"
+#include "tos/vendor/fkyaml/node.hpp"
+#include "tos/vendor/nlohmann/json.hpp"
 
 namespace tos {
 

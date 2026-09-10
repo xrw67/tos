@@ -4,7 +4,7 @@
 
 本文以 `/Users/xrw/code/cyanland/pallas-framework` 的公开头文件、API 合同和架构文档为功能来源，为 `tos` 制定渐进式改版清单。
 
-- `tos` 当前基线：仅头文件 `Status` 与 `Result<T>`，GoogleTest、最小示例和三平台 CI 已具备。
+- `tos` 当前基线：仅头文件 `Status`、`Result<T>`、时间和配置能力已具备：`Time`/`Duration`/时钟、JSON/YAML 配置树、类型化读取、合并、快照式 reload，以及手动组装的 `LayeredConfig` 与来源追踪；GoogleTest、最小示例和三平台 CI 已具备。
 - Pallas 当前基线：M0--M4 已完成；网络/IPC/Platform、扩展模块、示例文档和发布门禁仍缺原生 macOS/Windows 运行证据。因此它是功能与架构参考，不应被视为已经完成三平台发布验证的成品。
 - 目标不是复制 Pallas 的源码、CMake target 名称或第三方依赖，而是在 `tos` 中建立等价且经过自身测试的公开合同。每个公共组件均须说明所有权、线程安全、错误、关闭/取消和平台差异。
 - `tos::Status` 与 `tos::Result<T>` 是本项目唯一的错误/结果规范模型；保留当前 move-only 所有权、`Status` 表示无值操作结果、`Result<void>` 禁止的合同。不引入 `pallas::Error`、`pallas::Result` 或其公开别名。
@@ -18,7 +18,7 @@
 | Core | `Application`、`Runtime`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 未开始 |
 | 通信 | 生命周期安全的 `ServiceRegistry`/handle、异步 FIFO `EventBus`、RAII 订阅和背压 | 未开始 |
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
-| 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 未开始 |
+| 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
 | 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 未开始 |
 | Foundation 扩展 | `ByteSpan`、内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 未开始 |
 | 可观测性 | Counter/Gauge/Histogram、Prometheus 文本、Health、trace/span、W3C 与可选 OpenTelemetry | 未开始 |
@@ -49,7 +49,7 @@
   - 验收：手动时钟使定时相关测试确定性；非法时间文本返回结构化错误。
 - [x] `P1-02` 实现 `tos::config`：JSON/YAML 配置树、点路径类型化读取、必填/类型校验、合并与不可见部分更新的快照式 reload。
   - 验收：错误精确到路径；并发读取、格式错误、合并和 reload 一致性都有测试。
-- [ ] `P1-03` 实现分层配置、环境变量和命令行：优先级固定为 defaults < file < environment < CLI；支持长短选项、重复值、位置参数、`--help`、`--version` 与来源追踪。
+- [ ] `P1-03` 补齐分层配置的来源适配、环境变量和命令行：现有 `LayeredConfig` 已支持调用方手动提供具名层、确定性合并和来源追踪；新增 API 固定采用 defaults < file < environment < CLI 的优先级，并支持配置文件加载、长短选项、重复值、位置参数、`--help` 与 `--version`。
   - 验收：端到端示例验证覆盖顺序、未知参数和缺参失败，JSON 与 YAML 输入均有覆盖。
 - [ ] `P1-04` 实现只读布尔 `FeatureFlags`，绑定配置中的固定前缀；不做远程同步、灰度或用户分群。
   - 验收：非法名称/类型、默认值和 reload 后立即可见均有测试。
@@ -115,4 +115,4 @@
 
 ## 首个可执行迭代
 
-先完成 `P0-01` 至 `P0-05`，随后实施 `P1-01`、`P1-02`、`P1-05` 和一个“读取配置并记录日志”的 CLI 示例。该迭代会把现有错误模型、配置、日志、构建分发和测试合同连成可用的 MVP；`Runtime`、线程池和网络留待其公共基础契约稳定后再加入。
+先完成 `P0-01` 至 `P0-05`，随后实施 `P1-01`、`P1-02`、`P1-03`、`P1-05` 和一个“读取配置并记录日志”的 CLI 示例。该迭代会把现有错误模型、配置、日志、构建分发和测试合同连成可用的 MVP；`Runtime`、线程池和网络留待其公共基础契约稳定后再加入。

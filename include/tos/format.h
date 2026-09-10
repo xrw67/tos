@@ -7,7 +7,7 @@
 #define FMT_HEADER_ONLY
 #endif
 
-#include <vendor/fmt/format.h>
+#include "tos/vendor/fmt/format.h"
 
 namespace tos {
 
