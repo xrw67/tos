@@ -2,7 +2,7 @@
 #define TOS_JSON_H_
 
 // nlohmann/json is shipped in the public include tree so tos consumers only
-// need the tos::tos target or the include directory.
+// need the tos::base target or the include directory.
 #include "tos/vendor/nlohmann/json.hpp"
 
 namespace tos {

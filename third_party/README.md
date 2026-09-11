@@ -96,7 +96,7 @@ and synchronization of the referenced storage.
 - License: Apache License 2.0; see the system package's distributed license
 - CMake requirement: `find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)`
 
-`tos::crypto` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
+`tos::base` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
 `<tos/crypto.h>`. Consumers need the OpenSSL headers and `libcrypto` available
 when configuring and linking. This dependency is discovered locally and is never
 downloaded by tos. Because it is supplied by the build environment, no vendored

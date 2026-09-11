@@ -40,8 +40,8 @@
   - 验收：每个错误码在 API 合同中有明确的调用方处理语义，`ToString()`、比较、移动、`Result<T>` 传播和未知枚举值都有测试；0.x 迁移说明明确既有数值不变且不承诺 Abseil 枚举或 ABI 兼容。
 - [ ] `P0-02b` 提供 `Status`/`Result<T>` 传播辅助工具：增加经测试的 `TOS_RETURN_IF_ERROR` 和 `TOS_ASSIGN_OR_RETURN` 宏或等价 C++17 接口，避免调用方手写易错的 move-only 错误传播。
   - 验收：操作数恰好求值一次，错误以 `std::move` 传播，成功值可移动提取；在 `if`/`else`、临时对象、命名对象和异常构造路径中均有编译与运行测试，宏不耦合 logger 或其他 Runtime 组件。
-- [ ] `P0-03` 将单一 `tos` interface target 演进为按组件划分的 targets，并保留 `tos::tos` 聚合目标；禁止 Foundation/Task/Platform/Network/IPC 反向依赖 Runtime 或扩展。
-  - 验收：配置期 target 依赖检查；minimal 与 full feature 图均可构建。
+- [x] `P0-03` 将当前实现收敛为单一 `tosbase` 静态库，并仅公开 `tos::base` 消费 target；Foundation/Task/Platform/Network/IPC 的后续能力不得形成反向依赖。
+  - 验收：`tosbase` 传递已实现组件所需依赖；minimal、完整测试/示例和独立 `add_subdirectory` 消费工程均可构建。
 - [ ] `P0-04` 增加安装、导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。
   - 验收：全新临时消费工程分别以两种方式构建并运行。
 - [ ] `P0-05` 建立质量门禁：Debug/Release、ASan/UBSan、TSan（支持的平台）、clang-format、clang-tidy、coverage、fuzz 的 CMake presets；为 CTest 统一标签和超时。

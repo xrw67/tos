@@ -18,11 +18,11 @@ add_executable(tos_unit_tests
 )
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
-target_link_libraries(tos_process_test_helper PRIVATE tos::tos)
+target_link_libraries(tos_process_test_helper PRIVATE tos::base)
 
 target_link_libraries(
     tos_unit_tests
-    PRIVATE tos::tos GTest::gtest_main)
+    PRIVATE tos::base GTest::gtest_main)
 target_compile_definitions(
     tos_unit_tests
     PRIVATE TOS_PROCESS_TEST_HELPER="$<TARGET_FILE:tos_process_test_helper>")
@@ -30,7 +30,7 @@ add_dependencies(tos_unit_tests tos_process_test_helper)
 
 # A separate process is needed to observe static destruction after main returns.
 add_executable(tos_result_shutdown_test result_shutdown_test.cpp)
-target_link_libraries(tos_result_shutdown_test PRIVATE tos::tos)
+target_link_libraries(tos_result_shutdown_test PRIVATE tos::base)
 foreach(scenario moved valueless)
     add_test(NAME tos.ResultShutdown.${scenario}
         COMMAND tos_result_shutdown_test ${scenario})
@@ -48,7 +48,7 @@ gtest_discover_tests(
 
 # Keep global allocation hooks out of the regular test executable.
 add_executable(tos_allocation_tests status_allocation_test.cpp)
-target_link_libraries(tos_allocation_tests PRIVATE tos::tos GTest::gtest_main)
+target_link_libraries(tos_allocation_tests PRIVATE tos::base GTest::gtest_main)
 # Global new/delete replacements intentionally use malloc/free in this isolated
 # allocation-regression executable. GCC's diagnostic cannot model that pairing.
 target_compile_options(

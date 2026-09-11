@@ -57,49 +57,24 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
     add_compile_options(-Wall -Wextra -Werror)
 endif()
 
-add_library(tos INTERFACE)
-add_library(tos::tos ALIAS tos)
-target_include_directories(tos INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos INTERFACE cxx_std_17)
-
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
 find_package(Threads REQUIRED)
 
-add_library(tos_crypto STATIC src/crypto.cpp)
-add_library(tos::crypto ALIAS tos_crypto)
-target_include_directories(tos_crypto PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos_crypto PUBLIC cxx_std_17)
-target_link_libraries(tos_crypto PUBLIC OpenSSL::Crypto)
-
-add_library(tos_logging STATIC src/logging.cpp)
-add_library(tos::logging ALIAS tos_logging)
-target_include_directories(tos_logging PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos_logging PUBLIC cxx_std_17)
-target_link_libraries(tos_logging PUBLIC Threads::Threads)
-
-add_library(tos_filesystem STATIC src/filesystem.cpp)
-add_library(tos::filesystem ALIAS tos_filesystem)
-target_include_directories(tos_filesystem PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos_filesystem PUBLIC cxx_std_17)
-
-add_library(tos_process STATIC src/process.cpp)
-add_library(tos::process ALIAS tos_process)
-target_include_directories(tos_process PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos_process PUBLIC cxx_std_17)
-target_link_libraries(tos_process PUBLIC tos_filesystem Threads::Threads)
-
-add_library(tos_registry STATIC src/registry.cpp)
-add_library(tos::registry ALIAS tos_registry)
-target_include_directories(tos_registry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tos_registry PUBLIC cxx_std_17)
+add_library(
+    tosbase
+    STATIC
+    src/base/crypto.cpp
+    src/base/filesystem.cpp
+    src/base/logging.cpp
+    src/base/process.cpp
+    src/base/registry.cpp)
+add_library(tos::base ALIAS tosbase)
+target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(tosbase PUBLIC cxx_std_17)
+target_link_libraries(tosbase PUBLIC OpenSSL::Crypto Threads::Threads)
 if(WIN32)
-    target_link_libraries(tos_registry PUBLIC Advapi32)
+    target_link_libraries(tosbase PUBLIC Advapi32)
 endif()
-
-# Preserve the existing aggregate consumer target while adding the compiled
-# crypto component required by the public crypto API.
-target_link_libraries(tos_logging PUBLIC tos_filesystem)
-target_link_libraries(tos INTERFACE tos_crypto tos_filesystem tos_logging tos_process tos_registry)
 
 include(CTest)
 

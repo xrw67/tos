@@ -1,11 +1,11 @@
 add_executable(tos_minimal minimal.cpp)
-target_link_libraries(tos_minimal PRIVATE tos::tos)
+target_link_libraries(tos_minimal PRIVATE tos::base)
 
 add_executable(tos_logging_example logging.cpp)
-target_link_libraries(tos_logging_example PRIVATE tos::tos)
+target_link_libraries(tos_logging_example PRIVATE tos::base)
 
 add_executable(tos_process_example process.cpp)
-target_link_libraries(tos_process_example PRIVATE tos::tos)
+target_link_libraries(tos_process_example PRIVATE tos::base)
 
 if(BUILD_TESTING)
     add_test(

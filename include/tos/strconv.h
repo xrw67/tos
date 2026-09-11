@@ -180,7 +180,7 @@ inline void AppendUtf8(std::string* output, std::uint32_t value) {
     if (ansi.empty()) {
         return std::wstring();
     }
-    if (ansi.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    if (ansi.size() > static_cast<std::size_t>(INT_MAX)) {
         return Status(StatusCode::kOutOfRange, "ANSI text is too long for Windows conversion");
     }
     const int required =
@@ -211,7 +211,7 @@ inline void AppendUtf8(std::string* output, std::uint32_t value) {
     if (wide.empty()) {
         return std::string();
     }
-    if (wide.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    if (wide.size() > static_cast<std::size_t>(INT_MAX)) {
         return Status(StatusCode::kOutOfRange, "wide text is too long for Windows conversion");
     }
     BOOL used_default = FALSE;

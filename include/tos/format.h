@@ -1,7 +1,7 @@
 #ifndef TOS_FORMAT_H_
 #define TOS_FORMAT_H_
 
-// fmt is shipped in the public include tree. Header-only mode keeps tos::tos
+// fmt is shipped in the public include tree. Header-only mode keeps tos::base
 // free of a separate fmt link dependency.
 #ifndef FMT_HEADER_ONLY
 #define FMT_HEADER_ONLY

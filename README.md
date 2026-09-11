@@ -39,11 +39,11 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process` 和 `tos::registry` 静态库，以实现 `tos::tos` 导出的加密、文件、日志、进程与注册表 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时构建唯一的 `tosbase` 静态库，并通过 `tos::base` 导出全部已实现的加密、文件、日志、进程与注册表 API。
 
 ### 编写单元测试
 
-在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::tos` 和 `GTest::gtest_main`，无需自行编写 `main()`。
+在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::base` 和 `GTest::gtest_main`，无需自行编写 `main()`。
 
 CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，统一添加 `tos.` 名称前缀、`unit` 标签和 30 秒超时；新增用例无需逐个修改 CI。分配回归测试使用独立的 `tos_allocation_tests` 可执行文件，保留 6 项检查：成功零分配、Status 移动零分配、Result 状态借用及提取零分配、字符串右值转移缓冲区，以及两种分配失败清理路径。仅在被测操作期间统计分配和释放，避免影响常规测试。
 
@@ -57,12 +57,14 @@ CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，�
 
 ```cmake
 add_subdirectory(third_party/tos)
-target_link_libraries(your_app PRIVATE tos::tos)
+target_link_libraries(your_app PRIVATE tos::base)
 ```
 
-`your_app` 应由消费工程先通过 `add_executable` 或 `add_library` 定义。`tos::tos` 传递头文件路径和至少 C++17 的编译要求；消费工程自行设置其目标是否启用编译器语言扩展。
+`your_app` 应由消费工程先通过 `add_executable` 或 `add_library` 定义。`tos::base` 传递头文件路径、至少 C++17 的编译要求，以及 OpenSSL、线程和 Windows 注册表所需的系统链接依赖；消费工程自行设置其目标是否启用编译器语言扩展。
 
 作为子工程时，两个构建选项默认关闭；若上层工程或 CMake 缓存已经设置了同名选项，则尊重现有值。当前未提供安装导出或 `find_package` 接入。
+
+0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。所有调用方应改为链接唯一的 `tos::base`；C++ 命名空间 `tos::` 和 `<tos/...>` 公开头路径保持不变。
 
 ### 自动化验证
 
@@ -84,7 +86,6 @@ target_link_libraries(your_app PRIVATE tos::tos)
 
 - 初始骨架阶段：Unix Makefiles 和 Ninja Multi-Config 的 Release 编译及两项 CTest 检查。
 - 关闭测试、关闭示例、同时关闭两者的配置和构建；关闭测试后仍可运行示例。
-- 临时消费工程通过 `add_subdirectory` 接入，默认不构建 tos 测试和示例；链接 `tos::tos` 后获得头文件路径及 C++17 要求。
 - 示例校验脚本在程序返回非零退出码或输出错误时正确报错。
 - Status / Result 独占所有权阶段：Ninja 和 Ninja Multi-Config 的 Release 编译、49 项 GoogleTest 用例、3 项退出阶段检查及 1 项示例检查全部通过。
 - 添加 `Status::ToString()` 并精简测试后：Ninja Release 构建及 52 项 CTest 检查全部通过（49 项 GoogleTest、2 项退出阶段检查、1 项示例）；非法模板类型的配置阶段检查已移除。
