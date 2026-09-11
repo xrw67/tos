@@ -57,6 +57,7 @@ target_include_directories(tos INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(tos INTERFACE cxx_std_17)
 
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+find_package(Threads REQUIRED)
 
 add_library(tos_crypto STATIC src/crypto.cpp)
 add_library(tos::crypto ALIAS tos_crypto)
@@ -64,9 +65,15 @@ target_include_directories(tos_crypto PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 target_compile_features(tos_crypto PUBLIC cxx_std_17)
 target_link_libraries(tos_crypto PUBLIC OpenSSL::Crypto)
 
+add_library(tos_logging STATIC src/logging.cpp)
+add_library(tos::logging ALIAS tos_logging)
+target_include_directories(tos_logging PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(tos_logging PUBLIC cxx_std_17)
+target_link_libraries(tos_logging PUBLIC Threads::Threads)
+
 # Preserve the existing aggregate consumer target while adding the compiled
 # crypto component required by the public crypto API.
-target_link_libraries(tos INTERFACE tos_crypto)
+target_link_libraries(tos INTERFACE tos_crypto tos_logging)
 
 include(CTest)
 

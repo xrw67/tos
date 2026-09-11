@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 组件；并提供 GoogleTest 单元测试、最小示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 和同步结构化 `logging` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、Crypto、Time、Duration 和 Config 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339 和手动时钟；`example` 检查最小示例退出码为 0，且输出为 `tos example ready`。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、Crypto、Time、Duration、Config 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -39,7 +39,7 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto` 静态库，以实现 `tos::tos` 导出的加密 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto` 和 `tos::logging` 静态库，以实现 `tos::tos` 导出的加密和日志 API。
 
 ### 编写单元测试
 
@@ -238,6 +238,42 @@ span 本身不分配内存。由 C 数组、`std::array`、指针加长度以及
 不抛异常；若传入自定义容器，则其 `data()` 或 `size()` 的异常会直接传播。越界元素
 访问和无效子视图违反前置条件。该接口在 Linux、macOS 与 Windows 上具有相同行为。
 
+## 日志
+
+`<tos/logging.h>` 提供同步、线程安全的 `tos::Logger`。Logger 自己拥有控制台和文件 sink，不能复制或移动；所有公共方法可并发调用，单条记录、文件轮转和 flush 会串行化。默认 logger 名称为 `tos`、最低级别为 `Info`，控制台已启用：Trace、Debug 和 Info 写 stdout，Warning、Error 和 Critical 写 stderr。控制台格式为 UTC RFC3339 时间、级别、名称、消息和 `key=value` 字段。
+
+文件 sink 通过 `AddRotatingFileSink()` 添加，写入一行一个 JSON 对象，包含 `timestamp`、`level`、`logger`、`message` 和 `fields`。字段是确定性有序的 `LogFields`，值可为 `bool`、`int64_t`、`double` 或 `string`，写入 JSON 时保留类型。目录必须由调用方预先创建；活动文件超过 `max_bytes` 前会轮转，`.1` 是最新归档，`max_files` 不包含活动文件。单条超过上限的记录仍会完整写入空活动文件。
+
+```cpp
+#include <tos/logging.h>
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
+int main() {
+tos::LoggerOptions options;
+options.name = "orders";
+tos::Logger logger(options);
+const tos::Status configured = logger.AddRotatingFileSink(
+    {std::filesystem::path("logs/orders.jsonl"), 10 * 1024 * 1024, 5});
+if (!configured) {
+    return 1;
+}
+const tos::Status logged = logger.Info(
+    {{"request_id", std::string("r-42")}, {"attempt", std::int64_t(1)}},
+    "processed {} orders", 3);
+if (!logged) {
+    return 1;
+}
+return logger.Shutdown() ? 0 : 1;
+}
+```
+
+`Log`、各级别方法、文件 sink 配置、`Flush` 和 `Shutdown` 以 `Status` 报告预期 I/O、参数或关闭失败；格式化、路径、字符串和分配异常直接传播。显式 `Shutdown()` 会刷新已接受的记录并拒绝后续写入（`kFailedPrecondition`），重复关闭成功；析构函数只尽力 flush，无法报告错误。Logger 保证自身调用之间的线程安全，不保证与其他进程或直接写入同一文件、stdout、stderr 的代码之间原子交错。
+
+Logger 不会检查或修改字段值。调用方负责避免记录密码、令牌、Cookie、请求体、原始 URL、用户标识及其他敏感数据。
+
 ## 加密
 
 `<tos/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
@@ -398,7 +434,7 @@ GUI 框架、完整 ORM、分布式服务治理及自研通用网络协议栈暂
 - **错误约定**：可预期的操作失败通过统一状态或结果类型返回；第三方异常在适配边界转换；内存分配失败等异常行为单独说明，不承诺禁用异常支持。
 - **线程安全**：每个公共组件说明是否支持并发调用；首版日志组件必须支持多线程写入。
 - **依赖管理**：优先使用标准库和成熟第三方组件；记录依赖版本与许可证，可选模块按需启用。
-- **配置与日志安全**：默认不记录密码、令牌等敏感配置；外部输入在使用前进行校验。
+- **配置与日志安全**：调用方不得记录密码、令牌等敏感配置；外部输入在使用前进行校验。
 - **性能**：避免无必要的内存复制和隐式后台线程；为日志、配置读取等主要路径提供可复现的基准，暂不设缺少场景依据的吞吐指标。
 - **兼容性**：采用语义化版本；在 0.x 阶段允许调整 API，但需要记录破坏性变更及迁移方式，首版不承诺 ABI 稳定。
 

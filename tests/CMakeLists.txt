@@ -8,6 +8,7 @@ add_executable(tos_unit_tests
     fmt_test.cpp
     span_test.cpp
     crypto_test.cpp
+    logging_test.cpp
 )
 
 target_link_libraries(

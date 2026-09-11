@@ -19,7 +19,7 @@
 | 通信 | 生命周期安全的 `ServiceRegistry`/handle、异步 FIFO `EventBus`、RAII 订阅和背压 | 未开始 |
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
 | 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
-| 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 未开始 |
+| 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 部分完成：同步线程安全 Logger、控制台、按大小滚动 JSON Lines 文件、强类型字段与 flush/shutdown 已实现；异步队列和诊断上下文未实现 |
 | Foundation 扩展 | 内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 部分完成：`tos::span` 及基于 OpenSSL 的摘要、Base64、RSA 和 Ed25519 已实现；内存资源、二进制 codec 与 Protobuf 未实现 |
 | 可观测性 | Counter/Gauge/Histogram、Prometheus 文本、Health、trace/span、W3C 与可选 OpenTelemetry | 未开始 |
 | Network | Boost.Asio TCP listener/socket、UDP、IPv4/IPv6、部分 I/O、超时和取消 | 未开始 |
@@ -57,7 +57,7 @@
   - 验收：端到端示例验证覆盖顺序、未知参数和缺参失败，JSON 与 YAML 输入均有覆盖。
 - [ ] `P1-04` 实现只读布尔 `FeatureFlags`，绑定配置中的固定前缀；不做远程同步、灰度或用户分群。
   - 验收：非法名称/类型、默认值和 reload 后立即可见均有测试。
-- [ ] `P1-05` 实现线程安全 `Logger`：级别、控制台/文件 sink、格式化、flush，默认禁止输出密码、令牌等敏感配置；异步、有界队列、轮转作为第二阶段。
+- [x] `P1-05` 实现同步线程安全 `Logger`：级别、控制台/JSON Lines 文件 sink、格式化、按大小滚动和 flush；敏感信息筛选由调用方负责，异步与有界队列留作第二阶段。
   - 验收：多线程写入不会损坏单条记录，文件失败可观察，关闭时已接收记录被刷新。
 - [ ] `P1-06` 实现基础平台文件工具：UTF-8 路径适配、文本读写、目录/元数据查询和原子写入。
   - 验收：不存在、权限和替换失败返回明确错误；临时文件与资源清理可验证。
