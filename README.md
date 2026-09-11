@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 和同步结构化 `logging` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 和同步结构化 `logging` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、Crypto、Time、Duration、Config 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Crypto、Time、Duration、Config 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -237,6 +237,35 @@ increment(values);
 span 本身不分配内存。由 C 数组、`std::array`、指针加长度以及标准连续容器构造时
 不抛异常；若传入自定义容器，则其 `data()` 或 `size()` 的异常会直接传播。越界元素
 访问和无效子视图违反前置条件。该接口在 Linux、macOS 与 Windows 上具有相同行为。
+
+## 字符串工具
+
+`<tos/string.h>` 提供仅头文件的字节级字符串函数。`StrTrim`、`StrTrimLeft` 和
+`StrTrimRight` 仅移除 ASCII 空白字符（空格、tab、换行、回车、form-feed 和
+vertical-tab）；`StrToLower` 与 `StrToUpper` 仅转换 ASCII 字母。所有其他 UTF-8
+字节保持不变，位置、查找、分隔和替换也都按字节处理，不执行 Unicode 大小写折叠。
+
+`StrStartsWith`、`StrEndsWith` 和 `StrContains` 使用区分大小写的精确字节比较；
+`StrContainsIgnoreCase` 仅忽略 ASCII 字母大小写，非 ASCII 字节仍精确比较。
+`StrSplit` 接受完整文本分隔符并保留空段，空分隔符返回只包含原文本的一段；
+`StrJoin` 支持 `std::vector<std::string>`、`std::vector<std::string_view>` 和
+字符串视图 initializer list。`StrReplaceAll` 从左到右替换不重叠匹配，空匹配文本
+返回原文本。所有变换、分割和拼接结果独立拥有数据，支持嵌入空字符；其分配异常直接
+传播，不使用 `Status` 或 `Result`。
+
+```cpp
+#include <tos/string.h>
+
+#include <string>
+#include <vector>
+
+int main() {
+    const std::string name = tos::StrTrim("  TOS  ");
+    const auto parts = tos::StrSplit("one::two::", "::");
+    const std::string text = tos::StrJoin(parts, ",");
+    return tos::StrContains(tos::StrToLower(name), "tos") && text == "one,two," ? 0 : 1;
+}
+```
 
 ## 日志
 

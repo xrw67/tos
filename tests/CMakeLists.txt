@@ -7,6 +7,7 @@ add_executable(tos_unit_tests
     fkyaml_test.cpp
     fmt_test.cpp
     span_test.cpp
+    string_test.cpp
     crypto_test.cpp
     logging_test.cpp
 )
