@@ -85,7 +85,7 @@ TEST(RandomTest, GeneratesConcurrentlyWithoutCrossThreadState) {
     threads.reserve(kThreadCount);
 
     for (std::size_t thread_index = 0; thread_index < kThreadCount; ++thread_index) {
-        threads.emplace_back([&failed, kRecordsPerThread, kLength, kAlphabet] {
+        threads.emplace_back([&] {
             for (std::size_t record_index = 0; record_index < kRecordsPerThread; ++record_index) {
                 auto value = RandomString(kLength, kAlphabet);
                 if (!value || value->size() != kLength) {

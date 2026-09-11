@@ -30,7 +30,7 @@ if(MSVC)
     add_compile_options(
         /utf-8 # 编译时使用UTF-8编码
         /MP # 开启多线程编译
-        /W3 # 启用所有警告
+        /W3 # 启用项目既定警告等级
         /WX # 将警告视为错误
         /DNOMINMAX # 禁用标准库提供的max和min
         /DWIN32_LEAN_AND_MEAN # 减少头文件包含
@@ -46,9 +46,15 @@ if(LINUX)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -rdynamic -g")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -rdynamic -g")
 
-    add_compile_options(-Wall -Wextra -Werror)
-
     include(ccache) # 加载ccache
+endif()
+
+# Keep compiler diagnostics fatal on every supported platform. Linux already uses this policy;
+# Apple Clang and other GNU-compatible compilers must receive the same quality gate.
+if(MSVC)
+    # /W4 and /WX are configured above with the Windows toolchain options.
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    add_compile_options(-Wall -Wextra -Werror)
 endif()
 
 add_library(tos INTERFACE)

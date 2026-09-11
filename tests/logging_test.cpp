@@ -180,7 +180,7 @@ TEST(LoggerTest, SerializesConcurrentRecordsWithoutCorruptingJsonLines) {
     constexpr int kRecordsPerThread = 100;
     std::vector<std::thread> writers;
     for (int thread = 0; thread < kThreadCount; ++thread) {
-        writers.emplace_back([&logger, thread, kRecordsPerThread] {
+        writers.emplace_back([&, thread] {
             for (int index = 0; index < kRecordsPerThread; ++index) {
                 const Status status = logger.Info(
                     {{"thread", std::int64_t(thread)}, {"index", std::int64_t(index)}}, "record");

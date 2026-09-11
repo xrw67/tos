@@ -17,6 +17,7 @@ add_executable(tos_unit_tests
 )
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
+target_link_libraries(tos_process_test_helper PRIVATE tos::tos)
 
 target_link_libraries(
     tos_unit_tests
