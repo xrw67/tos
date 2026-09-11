@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem` 和跨平台 `process` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process` 和 Windows `registry` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -39,7 +39,7 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem`、`tos::logging` 和 `tos::process` 静态库，以实现 `tos::tos` 导出的加密、文件、日志与进程 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process` 和 `tos::registry` 静态库，以实现 `tos::tos` 导出的加密、文件、日志、进程与注册表 API。
 
 ### 编写单元测试
 
@@ -402,6 +402,39 @@ int main() {
     }
     auto content = tos::ReadTextFile(path);
     return content && content.value() == "complete\n" ? 0 : 1;
+}
+```
+
+## Windows 注册表
+
+`<tos/registry.h>` 提供本地 Windows 注册表的 UTF-8、RAII 和强类型键值操作。仅支持
+`HKCU` 与 `HKLM`；Linux 和 macOS 上所有注册表入口返回 `kUnimplemented`，不会模拟成功。
+`RegistryKey` 是 move-only 的拥有型句柄，同一实例上的并发调用由调用方同步。`Open()` 可用
+空子项访问根键，`Create()`、`DeleteKey()` 和 `DeleteSubkey()` 拒绝空路径，避免删除根键；
+删除含子项的键必须显式传入 `recursive = true`。
+
+Windows 会严格在 UTF-8 与 UTF-16 间转换。`std::string`、`RegistryExpandString`、
+`std::uint32_t`、`std::uint64_t`、`std::vector<std::uint8_t>` 和
+`std::vector<std::string>` 分别对应 `REG_SZ`、原始未展开的 `REG_EXPAND_SZ`、`REG_DWORD`、
+`REG_QWORD`、`REG_BINARY` 和 `REG_MULTI_SZ`。`RegistryView` 可选择进程原生、32 位或 64 位
+视图；实际可访问性仍受 UAC、ACL 和进程权限限制。
+
+```cpp
+#include "tos/registry.h"
+
+#include <cstdint>
+
+int main() {
+    auto key = tos::RegistryKey::Create(tos::RegistryHive::kCurrentUser,
+                                        "Software\\Example", tos::RegistryView::kNative);
+    if (!key) {
+        return 1;
+    }
+    if (!key->SetValue("enabled", std::uint32_t(1))) {
+        return 1;
+    }
+    auto enabled = key->GetValue("enabled");
+    return enabled ? 0 : 1;
 }
 ```
 

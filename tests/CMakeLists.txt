@@ -10,6 +10,7 @@ add_executable(tos_unit_tests
     string_test.cpp
     random_test.cpp
     process_test.cpp
+    registry_test.cpp
     strconv_test.cpp
     filesystem_test.cpp
     crypto_test.cpp
