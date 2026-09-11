@@ -309,7 +309,7 @@ Logger 不会检查或修改字段值。调用方负责避免记录密码、令�
 
 ## 文件与 UTF-8 路径
 
-`<tos/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
+`<tos/strconv.h>` 提供 `Utf8ToWide()` 与 `WideToUtf8()`；它们不依赖进程 locale，在 UTF-8 与平台 `wchar_t` 文本之间转换。无效 UTF-8、孤立代理项和非法 Unicode 标量返回 `kInvalidArgument`，嵌入空字符保留。Windows 专属的 `AnsiToWide()` 与 `WideToAnsi()` 使用当前 ANSI 代码页（`CP_ACP`）；无法无损转换时返回 `kInvalidArgument`，其他平台返回 `kUnimplemented`。`<tos/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
 
 `ReadTextFile`、`WriteTextFile`、`WriteTextFileAtomic`、`CreateDirectories`、`ListDirectory`、`GetFileMetadata`、`RemovePath` 和 `RenamePath` 使用 `Status` 或 `Result<T>` 报告 I/O 失败。文件内容按字节处理，不验证文本编码。目录列举按 UTF-8 字节排序；元数据不跟随符号链接。普通重命名拒绝覆盖目标，原子写入则在同目录写入临时文件后原子替换目标，保证读取方不会观察到半条内容，但不承诺断电持久性。
 

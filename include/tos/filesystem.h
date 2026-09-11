@@ -9,6 +9,7 @@
 
 #include "tos/result.h"
 #include "tos/status.h"
+#include "tos/strconv.h"
 
 namespace tos {
 

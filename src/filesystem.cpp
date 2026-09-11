@@ -21,59 +21,6 @@
 namespace tos {
 namespace {
 
-bool IsValidUtf8(std::string_view text) noexcept {
-    std::size_t index = 0;
-    while (index < text.size()) {
-        const unsigned char first = static_cast<unsigned char>(text[index]);
-        if (first <= 0x7f) {
-            ++index;
-            continue;
-        }
-
-        std::size_t length = 0;
-        unsigned char minimum_second = 0x80;
-        unsigned char maximum_second = 0xbf;
-        if (first >= 0xc2 && first <= 0xdf) {
-            length = 2;
-        } else if (first == 0xe0) {
-            length = 3;
-            minimum_second = 0xa0;
-        } else if (first >= 0xe1 && first <= 0xec) {
-            length = 3;
-        } else if (first == 0xed) {
-            length = 3;
-            maximum_second = 0x9f;
-        } else if (first >= 0xee && first <= 0xef) {
-            length = 3;
-        } else if (first == 0xf0) {
-            length = 4;
-            minimum_second = 0x90;
-        } else if (first >= 0xf1 && first <= 0xf3) {
-            length = 4;
-        } else if (first == 0xf4) {
-            length = 4;
-            maximum_second = 0x8f;
-        } else {
-            return false;
-        }
-        if (index + length > text.size()) {
-            return false;
-        }
-        const unsigned char second = static_cast<unsigned char>(text[index + 1]);
-        if (second < minimum_second || second > maximum_second) {
-            return false;
-        }
-        for (std::size_t continuation = 2; continuation < length; ++continuation) {
-            const unsigned char byte = static_cast<unsigned char>(text[index + continuation]);
-            if (byte < 0x80 || byte > 0xbf) {
-                return false;
-            }
-        }
-        index += length;
-    }
-    return true;
-}
-
 Status FileError(const std::error_code& error, std::string_view action, const Path& path) {
     StatusCode code = StatusCode::kUnavailable;
     if (error == std::errc::permission_denied || error == std::errc::operation_not_permitted) {
@@ -126,41 +73,19 @@ Status WindowsError(DWORD error, std::string_view action, const Path& path) {
 
 #ifdef _WIN32
 Result<std::filesystem::path> NativePath(const Path& path) {
-    if (path.utf8().size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-        return Status(StatusCode::kOutOfRange, "path is too long for Windows UTF-16 conversion");
+    auto wide = Utf8ToWide(path.utf8());
+    if (!wide) {
+        return std::move(wide).status();
     }
-    const int required = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.utf8().data(),
-                                             static_cast<int>(path.utf8().size()), nullptr, 0);
-    if (required == 0 && !path.empty()) {
-        return WindowsError(GetLastError(), "could not convert UTF-8 path", path);
-    }
-    std::wstring wide(static_cast<std::size_t>(required), L'\0');
-    if (required != 0 &&
-        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.utf8().data(),
-                            static_cast<int>(path.utf8().size()), wide.data(), required) == 0) {
-        return WindowsError(GetLastError(), "could not convert UTF-8 path", path);
-    }
-    return std::filesystem::path(std::move(wide));
+    return std::filesystem::path(std::move(wide).value());
 }
 
 Result<Path> PathFromNative(const std::filesystem::path& path) {
-    const std::wstring wide = path.native();
-    if (wide.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-        return Status(StatusCode::kDataLoss, "native path is too long for UTF-8 conversion");
+    auto utf8 = WideToUtf8(path.native());
+    if (!utf8) {
+        return std::move(utf8).status();
     }
-    const int required =
-        WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
-                            static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if (required == 0 && !wide.empty()) {
-        return Status(StatusCode::kDataLoss, "could not convert native path to UTF-8");
-    }
-    std::string utf8(static_cast<std::size_t>(required), '\0');
-    if (required != 0 && WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
-                                             static_cast<int>(wide.size()), utf8.data(), required,
-                                             nullptr, nullptr) == 0) {
-        return Status(StatusCode::kDataLoss, "could not convert native path to UTF-8");
-    }
-    return Path::Parse(utf8);
+    return Path::Parse(utf8.value());
 }
 #else
 Result<std::filesystem::path> NativePath(const Path& path) {
@@ -383,7 +308,7 @@ Result<Path> Path::Parse(std::string_view utf8) {
     if (utf8.find('\0') != std::string_view::npos) {
         return Status(StatusCode::kInvalidArgument, "UTF-8 paths must not contain NUL bytes");
     }
-    if (!IsValidUtf8(utf8)) {
+    if (!strconv_detail::IsValidUtf8(utf8)) {
         return Status(StatusCode::kInvalidArgument, "path must be valid UTF-8");
     }
     return Path(std::string(utf8));
