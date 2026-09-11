@@ -76,10 +76,16 @@ add_library(tos::filesystem ALIAS tos_filesystem)
 target_include_directories(tos_filesystem PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(tos_filesystem PUBLIC cxx_std_17)
 
+add_library(tos_process STATIC src/process.cpp)
+add_library(tos::process ALIAS tos_process)
+target_include_directories(tos_process PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(tos_process PUBLIC cxx_std_17)
+target_link_libraries(tos_process PUBLIC tos_filesystem Threads::Threads)
+
 # Preserve the existing aggregate consumer target while adding the compiled
 # crypto component required by the public crypto API.
 target_link_libraries(tos_logging PUBLIC tos_filesystem)
-target_link_libraries(tos INTERFACE tos_crypto tos_filesystem tos_logging)
+target_link_libraries(tos INTERFACE tos_crypto tos_filesystem tos_logging tos_process)
 
 include(CTest)
 

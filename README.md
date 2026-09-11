@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging` 和 UTF-8 `filesystem` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem` 和跨平台 `process` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动时钟、日志字段、轮转与并发写入；`example` 检查最小、日志和进程示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -39,7 +39,7 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem` 和 `tos::logging` 静态库，以实现 `tos::tos` 导出的加密、文件与日志 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem`、`tos::logging` 和 `tos::process` 静态库，以实现 `tos::tos` 导出的加密、文件、日志与进程 API。
 
 ### 编写单元测试
 
@@ -295,6 +295,43 @@ int main() {
 随机源初始化失败返回 `kUnavailable`，字符串和错误消息的分配异常直接传播。生成器会由
 `std::random_device` 初始化，但不承诺密码学安全，不能用于令牌、密钥、密码、验证码或
 任何其他安全敏感值。
+
+## 进程
+
+`<tos/process.h>` 提供不经过 shell 的 UTF-8 子进程启动。`ProcessOptions` 接受经过
+`Path::Parse()` 验证的可执行文件路径和独立参数，不搜索 PATH；相对可执行文件会按工作
+目录（或父进程当前目录）解析。`Process::Start()` 返回 move-only `Process`，其标准流继承
+父进程；`Wait()` 返回正常退出码或 POSIX 终止信号，`Terminate()` 终止直接子进程。仍在
+运行的 `Process` 析构时会尽力终止并回收它，但不会递归管理其后代进程。
+
+```cpp
+#include <tos/process.h>
+
+#include <optional>
+#include <string>
+#include <utility>
+
+int main() {
+    auto executable = tos::Path::Parse("tools/report");
+    if (!executable) {
+        return 1;
+    }
+    tos::ProcessOptions process {std::move(executable).value(), {"--format", "json"},
+                                 std::nullopt, {{"REPORT_COLOR", "never"}}};
+    tos::RunCommandOptions run;
+    run.timeout = tos::Duration::FromNanoseconds(10 * tos::Second.Nanoseconds());
+    auto result = tos::RunCommand(process, run);
+    return result && result->exit.exit_code && *result->exit.exit_code == 0 ? 0 : 1;
+}
+```
+
+`RunCommand()` 关闭子进程 stdin 并分别捕获 stdout 与 stderr，默认每个流最多 1 MiB；任一
+流超限会终止并回收直接子进程后返回 `kResourceExhausted`。正超时到期返回 `kTimeout`；
+非零程序退出仍是成功的 `CommandResult`。工作目录可选，环境默认继承并可通过
+`environment_overrides` 覆盖或以 `nullopt` 删除变量。环境变量名和值不得包含 NUL，POSIX
+名称区分大小写，Windows 对 ASCII 名称不区分大小写。启动、权限、路径与管道等操作失败以
+`Status` 报告；分配异常直接传播。同一 `Process` 的 `Wait`、`Terminate`、移动和析构不能
+并发调用。
 
 ## 日志
 
