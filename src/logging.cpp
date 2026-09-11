@@ -53,8 +53,7 @@ const char* LevelName(LogLevel level) noexcept {
     return "UNKNOWN";
 }
 
-Status FileError(const std::error_code& error, std::string_view action,
-                 const std::filesystem::path& path) {
+Status FileError(const std::error_code& error, std::string_view action, const Path& path) {
     StatusCode code = StatusCode::kUnavailable;
     if (error == std::errc::permission_denied) {
         code = StatusCode::kPermissionDenied;
@@ -63,11 +62,15 @@ Status FileError(const std::error_code& error, std::string_view action,
     } else if (error == std::errc::no_space_on_device) {
         code = StatusCode::kResourceExhausted;
     }
-    return Status(code, std::string(action) + " '" + path.string() + "': " + error.message());
+    return Status(code, std::string(action) + " '" + path.utf8() + "': " + error.message());
 }
 
-Status StreamError(std::string_view action, const std::filesystem::path& path) {
-    return Status(StatusCode::kUnavailable, std::string(action) + " '" + path.string() + "'");
+Status StreamError(std::string_view action, const Path& path) {
+    return Status(StatusCode::kUnavailable, std::string(action) + " '" + path.utf8() + "'");
+}
+
+std::filesystem::path NativeLogPath(const Path& path) {
+    return std::filesystem::u8path(path.utf8());
 }
 
 bool IsValidUtf8(std::string_view text) noexcept {
@@ -197,14 +200,14 @@ class RotatingFileSink {
     explicit RotatingFileSink(RotatingFileOptions options) : options_(std::move(options)) {}
 
     Status Open() {
-        stream_.open(options_.path, std::ios::binary | std::ios::app);
+        stream_.open(NativeLogPath(options_.path), std::ios::binary | std::ios::app);
         if (!stream_.is_open()) {
             const std::error_code error = std::make_error_code(std::errc::io_error);
             return FileError(error, "could not open log file", options_.path);
         }
 
         std::error_code error;
-        current_size_ = std::filesystem::file_size(options_.path, error);
+        current_size_ = std::filesystem::file_size(NativeLogPath(options_.path), error);
         if (error) {
             stream_.close();
             return FileError(error, "could not inspect log file", options_.path);
@@ -239,8 +242,8 @@ class RotatingFileSink {
     }
 
    private:
-    std::filesystem::path ArchivePath(std::size_t index) const {
-        return std::filesystem::path(options_.path.string() + "." + std::to_string(index));
+    Path ArchivePath(std::size_t index) const {
+        return std::move(Path::Parse(options_.path.utf8() + "." + std::to_string(index))).value();
     }
 
     Status Rotate() {
@@ -251,44 +254,44 @@ class RotatingFileSink {
         stream_.close();
 
         std::error_code error;
-        const std::filesystem::path oldest = ArchivePath(options_.max_files);
-        const bool oldest_exists = std::filesystem::exists(oldest, error);
+        const Path oldest = ArchivePath(options_.max_files);
+        const bool oldest_exists = std::filesystem::exists(NativeLogPath(oldest), error);
         if (error) {
             return FileError(error, "could not inspect log archive", oldest);
         }
-        if (oldest_exists && !std::filesystem::remove(oldest, error)) {
+        if (oldest_exists && !std::filesystem::remove(NativeLogPath(oldest), error)) {
             if (error) {
                 return FileError(error, "could not remove log archive", oldest);
             }
             return Status(StatusCode::kUnavailable,
-                          "could not remove log archive '" + oldest.string() + "'");
+                          "could not remove log archive '" + oldest.utf8() + "'");
         }
         if (error) {
             return FileError(error, "could not remove log archive", oldest);
         }
 
         for (std::size_t index = options_.max_files; index > 1; --index) {
-            const std::filesystem::path source = ArchivePath(index - 1);
-            const bool source_exists = std::filesystem::exists(source, error);
+            const Path source = ArchivePath(index - 1);
+            const bool source_exists = std::filesystem::exists(NativeLogPath(source), error);
             if (error) {
                 return FileError(error, "could not inspect log archive", source);
             }
             if (source_exists) {
-                const std::filesystem::path destination = ArchivePath(index);
-                std::filesystem::rename(source, destination, error);
+                const Path destination = ArchivePath(index);
+                std::filesystem::rename(NativeLogPath(source), NativeLogPath(destination), error);
                 if (error) {
                     return FileError(error, "could not rotate log archive", source);
                 }
             }
         }
 
-        const std::filesystem::path newest = ArchivePath(1);
-        std::filesystem::rename(options_.path, newest, error);
+        const Path newest = ArchivePath(1);
+        std::filesystem::rename(NativeLogPath(options_.path), NativeLogPath(newest), error);
         if (error) {
             return FileError(error, "could not rotate log file", options_.path);
         }
 
-        stream_.open(options_.path, std::ios::binary | std::ios::trunc);
+        stream_.open(NativeLogPath(options_.path), std::ios::binary | std::ios::trunc);
         if (!stream_.is_open()) {
             const std::error_code io_error = std::make_error_code(std::errc::io_error);
             return FileError(io_error, "could not reopen log file", options_.path);

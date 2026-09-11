@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto` 和同步结构化 `logging` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging` 和 UTF-8 `filesystem` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Crypto、Time、Duration、Config 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Crypto、Time、Duration、Config、Filesystem 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -39,7 +39,7 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto` 和 `tos::logging` 静态库，以实现 `tos::tos` 导出的加密和日志 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仍构建 `tos::crypto`、`tos::filesystem` 和 `tos::logging` 静态库，以实现 `tos::tos` 导出的加密、文件与日志 API。
 
 ### 编写单元测试
 
@@ -271,37 +271,73 @@ int main() {
 
 `<tos/logging.h>` 提供同步、线程安全的 `tos::Logger`。Logger 自己拥有控制台和文件 sink，不能复制或移动；所有公共方法可并发调用，单条记录、文件轮转和 flush 会串行化。默认 logger 名称为 `tos`、最低级别为 `Info`，控制台已启用：Trace、Debug 和 Info 写 stdout，Warning、Error 和 Critical 写 stderr。控制台格式为 UTC RFC3339 时间、级别、名称、消息和 `key=value` 字段。
 
-文件 sink 通过 `AddRotatingFileSink()` 添加，写入一行一个 JSON 对象，包含 `timestamp`、`level`、`logger`、`message` 和 `fields`。字段是确定性有序的 `LogFields`，值可为 `bool`、`int64_t`、`double` 或 `string`，写入 JSON 时保留类型。目录必须由调用方预先创建；活动文件超过 `max_bytes` 前会轮转，`.1` 是最新归档，`max_files` 不包含活动文件。单条超过上限的记录仍会完整写入空活动文件。
+文件 sink 通过 `AddRotatingFileSink()` 添加，写入一行一个 JSON 对象，包含 `timestamp`、`level`、`logger`、`message` 和 `fields`。字段是确定性有序的 `LogFields`，值可为 `bool`、`int64_t`、`double` 或 `string`，写入 JSON 时保留类型。`RotatingFileOptions::path` 是经过 `Path::Parse()` 验证的 UTF-8 路径；目录必须由调用方预先创建。活动文件超过 `max_bytes` 前会轮转，`.1` 是最新归档，`max_files` 不包含活动文件。单条超过上限的记录仍会完整写入空活动文件。
 
 ```cpp
 #include <tos/logging.h>
 
 #include <cstdint>
-#include <filesystem>
 #include <string>
+#include <utility>
 
 int main() {
-tos::LoggerOptions options;
-options.name = "orders";
-tos::Logger logger(options);
-const tos::Status configured = logger.AddRotatingFileSink(
-    {std::filesystem::path("logs/orders.jsonl"), 10 * 1024 * 1024, 5});
-if (!configured) {
-    return 1;
-}
-const tos::Status logged = logger.Info(
-    {{"request_id", std::string("r-42")}, {"attempt", std::int64_t(1)}},
-    "processed {} orders", 3);
-if (!logged) {
-    return 1;
-}
-return logger.Shutdown() ? 0 : 1;
+    auto path = tos::Path::Parse("logs/orders.jsonl");
+    if (!path) {
+        return 1;
+    }
+    tos::LoggerOptions options;
+    options.name = "orders";
+    tos::Logger logger(options);
+    const tos::Status configured =
+        logger.AddRotatingFileSink({std::move(path).value(), 10 * 1024 * 1024, 5});
+    if (!configured) {
+        return 1;
+    }
+    const tos::Status logged = logger.Info(
+        {{"request_id", std::string("r-42")}, {"attempt", std::int64_t(1)}},
+        "processed {} orders", 3);
+    if (!logged) {
+        return 1;
+    }
+    return logger.Shutdown() ? 0 : 1;
 }
 ```
 
 `Log`、各级别方法、文件 sink 配置、`Flush` 和 `Shutdown` 以 `Status` 报告预期 I/O、参数或关闭失败；格式化、路径、字符串和分配异常直接传播。显式 `Shutdown()` 会刷新已接受的记录并拒绝后续写入（`kFailedPrecondition`），重复关闭成功；析构函数只尽力 flush，无法报告错误。Logger 保证自身调用之间的线程安全，不保证与其他进程或直接写入同一文件、stdout、stderr 的代码之间原子交错。
 
 Logger 不会检查或修改字段值。调用方负责避免记录密码、令牌、Cookie、请求体、原始 URL、用户标识及其他敏感数据。
+
+## 文件与 UTF-8 路径
+
+`<tos/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
+
+`ReadTextFile`、`WriteTextFile`、`WriteTextFileAtomic`、`CreateDirectories`、`ListDirectory`、`GetFileMetadata`、`RemovePath` 和 `RenamePath` 使用 `Status` 或 `Result<T>` 报告 I/O 失败。文件内容按字节处理，不验证文本编码。目录列举按 UTF-8 字节排序；元数据不跟随符号链接。普通重命名拒绝覆盖目标，原子写入则在同目录写入临时文件后原子替换目标，保证读取方不会观察到半条内容，但不承诺断电持久性。
+
+```cpp
+#include "tos/filesystem.h"
+
+#include <iostream>
+#include <utility>
+
+int main() {
+    auto path_result = tos::Path::Parse(u8"output/状态.txt");
+    if (!path_result) {
+        std::cerr << path_result.status().ToString() << '\n';
+        return 1;
+    }
+    tos::Path path = std::move(path_result).value();
+    const tos::Status created = tos::CreateDirectories(path.parent_path());
+    if (!created) {
+        return 1;
+    }
+    const tos::Status written = tos::WriteTextFileAtomic(path, "complete\n");
+    if (!written) {
+        return 1;
+    }
+    auto content = tos::ReadTextFile(path);
+    return content && content.value() == "complete\n" ? 0 : 1;
+}
+```
 
 ## 加密
 

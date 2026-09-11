@@ -3,7 +3,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <filesystem>
 #include <map>
 #include <memory>
 #include <string>
@@ -11,6 +10,7 @@
 #include <utility>
 #include <variant>
 
+#include "tos/filesystem.h"
 #include "tos/format.h"
 #include "tos/status.h"
 #include "tos/time.h"
@@ -29,7 +29,7 @@ using LogFields = std::map<std::string, LogValue>;
 /// Options for a size-rotating JSON Lines file sink.
 struct RotatingFileOptions {
     /// Active log file. Its parent directory must already exist.
-    std::filesystem::path path;
+    Path path;
     /// Maximum active-file size in bytes before the next record triggers rotation.
     std::size_t max_bytes = 0;
     /// Number of archive files retained, excluding the active file.

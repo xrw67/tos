@@ -16,7 +16,13 @@ int main() {
     options.name = "example";
     tos::Logger logger(options);
 
-    const tos::Status configured = logger.AddRotatingFileSink({path, 1024 * 1024, 2});
+    auto utf8_path = tos::Path::Parse(path.u8string());
+    if (!utf8_path) {
+        std::cerr << utf8_path.status().ToString() << '\n';
+        return 1;
+    }
+    const tos::Status configured =
+        logger.AddRotatingFileSink({std::move(utf8_path).value(), 1024 * 1024, 2});
     if (!configured) {
         std::cerr << configured.ToString() << '\n';
         return 1;

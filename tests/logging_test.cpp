@@ -10,6 +10,7 @@
 #include <limits>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -44,6 +45,14 @@ class TemporaryDirectory {
 };
 
 std::atomic<std::uint64_t> TemporaryDirectory::next_id_{0};
+
+Path LogPath(const std::filesystem::path& path) {
+    auto parsed = Path::Parse(path.u8string());
+    if (!parsed) {
+        throw std::runtime_error(parsed.status().ToString());
+    }
+    return std::move(parsed).value();
+}
 
 std::vector<json> ReadJsonLines(const std::filesystem::path& path) {
     std::ifstream input(path);
@@ -95,7 +104,7 @@ TEST(LoggerTest, WritesTypedJsonFieldsWithoutChangingValues) {
     const std::filesystem::path path = directory.path() / "typed.jsonl";
     auto clock = std::make_shared<ManualClock>(Time::FromUnixNanoseconds(123400000));
     Logger logger(FileLoggerOptions(clock));
-    ASSERT_TRUE(logger.AddRotatingFileSink({path, 4096, 2}));
+    ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 4096, 2}));
 
     ASSERT_TRUE(logger.Info({{"enabled", true},
                              {"count", std::int64_t(7)},
@@ -123,7 +132,7 @@ TEST(LoggerTest, RotatesByProspectiveSizeAndRetainsConfiguredArchives) {
     TemporaryDirectory directory;
     const std::filesystem::path path = directory.path() / "rotate.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
-    ASSERT_TRUE(logger.AddRotatingFileSink({path, 150, 2}));
+    ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 150, 2}));
 
     for (int index = 0; index < 8; ++index) {
         ASSERT_TRUE(logger.Info("record-{}-with-a-long-message", index));
@@ -151,11 +160,12 @@ TEST(LoggerTest, RejectsInvalidFileOptionsAndReportsFileOpenFailures) {
     TemporaryDirectory directory;
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
 
-    const Status invalid = logger.AddRotatingFileSink({directory.path() / "invalid.jsonl", 0, 1});
+    const Status invalid =
+        logger.AddRotatingFileSink({LogPath(directory.path() / "invalid.jsonl"), 0, 1});
     EXPECT_FALSE(invalid);
     EXPECT_EQ(invalid.code(), StatusCode::kInvalidArgument);
 
-    const Status directory_file = logger.AddRotatingFileSink({directory.path(), 128, 1});
+    const Status directory_file = logger.AddRotatingFileSink({LogPath(directory.path()), 128, 1});
     EXPECT_FALSE(directory_file);
     EXPECT_NE(directory_file.code(), StatusCode::kOk);
 }
@@ -164,7 +174,7 @@ TEST(LoggerTest, SerializesConcurrentRecordsWithoutCorruptingJsonLines) {
     TemporaryDirectory directory;
     const std::filesystem::path path = directory.path() / "concurrent.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
-    ASSERT_TRUE(logger.AddRotatingFileSink({path, 1024 * 1024, 2}));
+    ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 1024 * 1024, 2}));
 
     constexpr int kThreadCount = 8;
     constexpr int kRecordsPerThread = 100;
@@ -196,7 +206,7 @@ TEST(LoggerTest, FlushesOnShutdownRejectsLaterWritesAndDestructorFlushes) {
     TemporaryDirectory directory;
     const std::filesystem::path path = directory.path() / "shutdown.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
-    ASSERT_TRUE(logger.AddRotatingFileSink({path, 4096, 1}));
+    ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 4096, 1}));
     ASSERT_TRUE(logger.Info("before shutdown"));
     ASSERT_TRUE(logger.Shutdown());
     EXPECT_TRUE(logger.Shutdown());
@@ -212,7 +222,7 @@ TEST(LoggerTest, FlushesOnShutdownRejectsLaterWritesAndDestructorFlushes) {
     const std::filesystem::path destructor_path = directory.path() / "destructor.jsonl";
     {
         Logger destructor_logger(FileLoggerOptions(std::make_shared<ManualClock>()));
-        ASSERT_TRUE(destructor_logger.AddRotatingFileSink({destructor_path, 4096, 1}));
+        ASSERT_TRUE(destructor_logger.AddRotatingFileSink({LogPath(destructor_path), 4096, 1}));
         ASSERT_TRUE(destructor_logger.Info("destructor flush"));
     }
     EXPECT_EQ(ReadJsonLines(destructor_path).size(), 1U);
