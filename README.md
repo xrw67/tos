@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging` 和 UTF-8 `filesystem` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging` 和 UTF-8 `filesystem` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Crypto、Time、Duration、Config、Filesystem 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、手动时钟、日志字段、轮转与并发写入；`example` 检查最小示例和日志示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -266,6 +266,35 @@ int main() {
     return tos::StrContains(tos::StrToLower(name), "tos") && text == "one,two," ? 0 : 1;
 }
 ```
+
+## 随机字符串
+
+`<tos/random.h>` 提供仅头文件的 `RandomString()`，用于生成测试数据、临时名称和其他
+非安全用途的随机字符串。默认字符集是 `kRandomAlphaNumeric`；还提供
+`kRandomDigits`、`kRandomLowercaseLetters`、`kRandomUppercaseLetters` 和
+`kRandomLetters`。调用方也可传入任意非空字节字符集，包含嵌入 NUL；每个字符集位置
+等概率采样，重复字节会提高该字节的出现权重。
+
+```cpp
+#include <tos/random.h>
+
+#include <string>
+
+int main() {
+    auto identifier = tos::RandomString(16);
+    if (!identifier) {
+        return 1;
+    }
+    const auto separator = tos::RandomString(8, "abc-");
+    return separator && identifier->size() == 16 ? 0 : 1;
+}
+```
+
+`RandomString(0, {})` 成功返回空字符串；非零长度配合空字符集返回
+`kInvalidArgument`。每个线程拥有独立的 `std::mt19937_64` 状态，因此函数可并发调用；
+随机源初始化失败返回 `kUnavailable`，字符串和错误消息的分配异常直接传播。生成器会由
+`std::random_device` 初始化，但不承诺密码学安全，不能用于令牌、密钥、密码、验证码或
+任何其他安全敏感值。
 
 ## 日志
 
