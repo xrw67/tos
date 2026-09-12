@@ -1,4 +1,4 @@
-#include "tos/crypto.h"
+#include "tos/base/crypto.h"
 
 #include <algorithm>
 #include <climits>

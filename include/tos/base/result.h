@@ -1,5 +1,5 @@
-#ifndef TOS_RESULT_H_
-#define TOS_RESULT_H_
+#ifndef TOS_BASE_RESULT_H_
+#define TOS_BASE_RESULT_H_
 
 #include <memory>
 #include <new>
@@ -10,7 +10,7 @@
 #include <utility>
 #include <variant>
 
-#include "tos/status.h"
+#include "tos/base/status.h"
 
 namespace tos {
 
@@ -179,4 +179,4 @@ class [[nodiscard]] Result {
 
 }  // namespace tos
 
-#endif  // TOS_RESULT_H_
+#endif  // TOS_BASE_RESULT_H_

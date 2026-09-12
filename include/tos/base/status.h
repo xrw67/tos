@@ -1,5 +1,5 @@
-#ifndef TOS_STATUS_H_
-#define TOS_STATUS_H_
+#ifndef TOS_BASE_STATUS_H_
+#define TOS_BASE_STATUS_H_
 
 #include <memory>
 #include <string>
@@ -231,4 +231,4 @@ class [[nodiscard]] Status {
 
 }  // namespace tos
 
-#endif  // TOS_STATUS_H_
+#endif  // TOS_BASE_STATUS_H_

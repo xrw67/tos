@@ -3,8 +3,8 @@
 ## Project Scope
 
 `tos` is a C++17 application-foundation library. Its shipped public APIs use
-the `tos::` namespace and `<tos/...>` headers; `tos::base` is the sole CMake
-consumer target and builds the `tosbase` static library. GoogleTest tests,
+the `tos::` namespace and `<tos/...>` headers; `tos::base` and `tos::app` are
+the public CMake consumer targets (`tos::app` depends on `tos::base`). GoogleTest tests,
 examples, and Linux/macOS/Windows Release CI are in place. Treat items in
 `TODO.md` as planned work, not existing behavior.
 
@@ -95,9 +95,13 @@ Do not commit build products, generated CMake files, or local IDE state.
 
 ## CMake And Dependency Rules
 
-- The sole consumer target is `tos::base`, backed by the `tosbase` static
-  library; do not add component-level consumer targets. `add_subdirectory`
-  consumers must continue to work with tests and examples off by default.
+- `tos::base` is backed by `tosbase`; `tos::app` is backed by `tosapp` and
+  publicly depends on `tos::base`. `add_subdirectory` consumers must continue
+  to work with tests and examples off by default.
+- `tosbase` must not depend on `tosapp` or `tos::app`: code in `src/base/` and
+  public headers in `include/tos/base/` must not include Application headers.
+  Preserve the top-level CMake configure-time checks for both source includes
+  and target link dependencies.
 - Keep `BUILD_TESTING` and `TOS_BUILD_EXAMPLES` optional. Tests bring in the
   vendored GoogleTest source only when enabled; examples must build without
   tests.

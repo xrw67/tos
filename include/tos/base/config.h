@@ -1,5 +1,5 @@
-#ifndef TOS_CONFIG_H_
-#define TOS_CONFIG_H_
+#ifndef TOS_BASE_CONFIG_H_
+#define TOS_BASE_CONFIG_H_
 
 #include <algorithm>
 #include <atomic>
@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "tos/result.h"
+#include "tos/base/result.h"
 #include "tos/vendor/fkyaml/node.hpp"
 #include "tos/vendor/nlohmann/json.hpp"
 
@@ -553,4 +553,4 @@ class ConfigStore {
 
 }  // namespace tos
 
-#endif  // TOS_CONFIG_H_
+#endif  // TOS_BASE_CONFIG_H_

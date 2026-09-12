@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "tos/yaml.h"
+#include "tos/base/yaml.h"
 
 namespace tos {
 namespace {

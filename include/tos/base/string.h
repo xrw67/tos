@@ -1,5 +1,5 @@
-#ifndef TOS_STRING_H_
-#define TOS_STRING_H_
+#ifndef TOS_BASE_STRING_H_
+#define TOS_BASE_STRING_H_
 
 #include <cstddef>
 #include <initializer_list>
@@ -204,4 +204,4 @@ inline std::string StrReplaceAll(std::string_view text, std::string_view from,
 
 }  // namespace tos
 
-#endif  // TOS_STRING_H_
+#endif  // TOS_BASE_STRING_H_

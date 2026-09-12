@@ -33,7 +33,7 @@ update this version and checksum record, and run the tests on all three platform
 - License: [MIT](../include/tos/vendor/nlohmann/LICENSE.MIT)
 - Local modifications: none
 
-`<tos/json.h>` re-exports `nlohmann::json` and related primary types in namespace
+`<tos/base/json.h>` re-exports `nlohmann::json` and related primary types in namespace
 `tos`. It requires no runtime library, separate CMake target, or network download.
 
 ## fkYAML
@@ -48,7 +48,7 @@ update this version and checksum record, and run the tests on all three platform
 - License: [MIT](../include/tos/vendor/fkyaml/LICENSE.txt)
 - Local modifications: none
 
-`<tos/yaml.h>` exposes the header-only YAML parser. It requires no runtime library,
+`<tos/base/yaml.h>` exposes the header-only YAML parser. It requires no runtime library,
 separate CMake target, or network download. fkYAML parser exceptions are exposed
 only through this third-party header; a future tos configuration API must translate
 expected input failures to `tos::Result<T>`.
@@ -65,7 +65,7 @@ expected input failures to `tos::Result<T>`.
 - License: [MIT](../include/tos/vendor/fmt/LICENSE)
 - Local modifications: none
 
-`<tos/format.h>` exposes fmt with `FMT_HEADER_ONLY` enabled, so it requires no
+`<tos/base/format.h>` exposes fmt with `FMT_HEADER_ONLY` enabled, so it requires no
 runtime library, separate CMake target, or network download. When updating either
 header-only dependency, verify the release archive and vendored header checksums,
 replace the public headers and license from that archive, and run the tests on all
@@ -83,7 +83,7 @@ three platforms.
 - License: [Boost Software License 1.0](../include/tos/vendor/nonstd/LICENSE.txt)
 - Local modifications: none
 
-`<tos/span.h>` exposes `tos::span<T, Extent>` and `tos::dynamic_extent` over
+`<tos/base/span.h>` exposes `tos::span<T, Extent>` and `tos::dynamic_extent` over
 span-lite. It requires no runtime library, separate CMake target, or network
 download. The view is non-owning; its caller remains responsible for the lifetime
 and synchronization of the referenced storage.
@@ -97,7 +97,7 @@ and synchronization of the referenced storage.
 - CMake requirement: `find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)`
 
 `tos::base` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
-`<tos/crypto.h>`. Consumers need the OpenSSL headers and `libcrypto` available
+`<tos/base/crypto.h>`. Consumers need the OpenSSL headers and `libcrypto` available
 when configuring and linking. This dependency is discovered locally and is never
 downloaded by tos. Because it is supplied by the build environment, no vendored
 archive checksum applies; deployments must track their package manager's OpenSSL

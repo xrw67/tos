@@ -15,18 +15,24 @@ add_executable(tos_unit_tests
     filesystem_test.cpp
     crypto_test.cpp
     logging_test.cpp
+    application_test.cpp
 )
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
 target_link_libraries(tos_process_test_helper PRIVATE tos::base)
 
+add_subdirectory(app_consumer)
+
 target_link_libraries(
     tos_unit_tests
-    PRIVATE tos::base GTest::gtest_main)
+    PRIVATE tos::app GTest::gtest_main)
 target_compile_definitions(
     tos_unit_tests
     PRIVATE TOS_PROCESS_TEST_HELPER="$<TARGET_FILE:tos_process_test_helper>")
 add_dependencies(tos_unit_tests tos_process_test_helper)
+
+add_test(NAME tos.ApplicationConsumer COMMAND tos_app_consumer)
+set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT 30)
 
 # A separate process is needed to observe static destruction after main returns.
 add_executable(tos_result_shutdown_test result_shutdown_test.cpp)

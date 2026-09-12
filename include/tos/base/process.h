@@ -1,5 +1,5 @@
-#ifndef TOS_PROCESS_H_
-#define TOS_PROCESS_H_
+#ifndef TOS_BASE_PROCESS_H_
+#define TOS_BASE_PROCESS_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -9,9 +9,9 @@
 #include <string>
 #include <vector>
 
-#include "tos/filesystem.h"
-#include "tos/result.h"
-#include "tos/time.h"
+#include "tos/base/filesystem.h"
+#include "tos/base/result.h"
+#include "tos/base/time.h"
 
 namespace tos {
 
@@ -103,4 +103,4 @@ class [[nodiscard]] Process {
 
 }  // namespace tos
 
-#endif  // TOS_PROCESS_H_
+#endif  // TOS_BASE_PROCESS_H_

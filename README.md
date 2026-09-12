@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process` 和 Windows `registry` 组件；并提供 GoogleTest 单元测试、示例和三平台 CI。其他应用组件仍处于需求规划阶段。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
 
 ### 环境要求
 
@@ -12,10 +12,10 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - 支持 C++17 的编译器：Linux 使用 GCC，macOS 使用 Apple Clang，Windows 使用 MSVC。
 - macOS 安装 Xcode Command Line Tools；Windows 安装 Visual Studio 2022 的“使用 C++ 的桌面开发”工作负载。
 - GoogleTest 1.17.0 完整源码随仓库存放于 `third_party/googletest/`，使用 BSD-3-Clause 许可证；版本、来源和校验值记录在 [第三方库说明](third_party/README.md) 中。
-- nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/tos/vendor/nlohmann/`；包含 `<tos/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
-- fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/yaml.h>` 即可使用，不产生运行时库或网络下载。
-- fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
-- span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
+- nlohmann/json 3.11.3 的单头文件和 MIT 许可证位于公开 include 树的 `include/tos/vendor/nlohmann/`；包含 `<tos/base/json.h>` 后可使用 `tos::json`，不产生运行时库或网络下载。
+- fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/base/yaml.h>` 即可使用，不产生运行时库或网络下载。
+- fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/base/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
+- span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/base/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
 - OpenSSL 3.0 或更新版本的开发包，包含头文件和 `libcrypto`。macOS 使用 `brew install openssl@3` 后应以 `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)` 配置；Windows 需要提供与 MSVC 架构匹配的 OpenSSL 开发包。
 - 配置和构建不会下载依赖，也无需初始化 Git 子模块；OpenSSL 必须由环境预先安装。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process 和 Logger 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动时钟、日志字段、轮转与并发写入；`example` 检查最小、日志和进程示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process、Logger 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动时钟、日志字段、轮转与并发写入、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -39,17 +39,17 @@ ctest --test-dir build -C Release -L example --output-on-failure --no-tests=erro
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
 | `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时构建唯一的 `tosbase` 静态库，并通过 `tos::base` 导出全部已实现的加密、文件、日志、进程与注册表 API。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时构建 `tosbase` 和独立的 `tosapp` 静态库；`tos::base` 导出基础 API，`tos::app` 导出 Application 框架并公开依赖 `tos::base`。
 
 ### 编写单元测试
 
-在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::base` 和 `GTest::gtest_main`，无需自行编写 `main()`。
+在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::app`（基础测试也可直接链接 `tos::base`）和 `GTest::gtest_main`，无需自行编写 `main()`。
 
 CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，统一添加 `tos.` 名称前缀、`unit` 标签和 30 秒超时；新增用例无需逐个修改 CI。分配回归测试使用独立的 `tos_allocation_tests` 可执行文件，保留 6 项检查：成功零分配、Status 移动零分配、Result 状态借用及提取零分配、字符串右值转移缓冲区，以及两种分配失败清理路径。仅在被测操作期间统计分配和释放，避免影响常规测试。
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/json.h>`、`<tos/yaml.h>`、`<tos/format.h>` 与 `<tos/span.h>` 提供。`<tos/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现。完整检出且已安装 OpenSSL 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/base/json.h>`、`<tos/base/yaml.h>`、`<tos/base/format.h>` 与 `<tos/base/span.h>` 提供。`<tos/base/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现。完整检出且已安装 OpenSSL 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
 ### 接入其他工程
 
@@ -64,7 +64,26 @@ target_link_libraries(your_app PRIVATE tos::base)
 
 作为子工程时，两个构建选项默认关闭；若上层工程或 CMake 缓存已经设置了同名选项，则尊重现有值。当前未提供安装导出或 `find_package` 接入。
 
-0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。所有调用方应改为链接唯一的 `tos::base`；C++ 命名空间 `tos::` 和 `<tos/...>` 公开头路径保持不变。
+需要模块化 Application 时，将链接目标改为 `tos::app`；它会传递 `tos::base` 的头文件、C++17、OpenSSL 和线程依赖：
+
+```cmake
+target_link_libraries(your_app PRIVATE tos::app)
+```
+
+### Application 框架
+
+`tos::App` 独占 `std::unique_ptr<tos::Module>` 模块，并按依赖 DAG 的确定性拓扑顺序执行 `OnLoad`，停止时反向执行 `OnUnload`。加载失败会自动回滚并进入不可重启的 `kFailed` 状态；停止会继续清理全部模块并报告首个错误。App 的 `Start`、`Stop` 和状态查询可并发调用，但回调始终串行，同一 App 不支持生命周期回调重入。
+
+`Context` 是抽象的精确 C++ 类型服务容器，由 `App` 创建并通过 `App::context()` 提供给调用方和模块。其内部 `ServiceRegistry` 由 App 管理生命周期，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+
+```cpp
+tos::App app;
+app.AddModule(std::make_unique<MyModule>());
+if (!app.Start()) return 1;
+app.Stop();
+```
+
+0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务与模块接口位于 `<tos/app/context.h>`、`<tos/app/service.h>` 和 `<tos/app/module.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger 不再通过 `ConfigService`/`LoggerService` 获取，改用 `Context::config()` 和 `Context::logger()`。
 
 ### 自动化验证
 
@@ -99,8 +118,8 @@ target_link_libraries(your_app PRIVATE tos::base)
 无返回值操作使用 `tos::Status`，有返回值操作使用 `tos::Result<T>`。两个类型都标记了 `[[nodiscard]]`，提醒调用方处理返回结果；无需额外链接库。
 
 ```cpp
-#include "tos/result.h"
-#include "tos/status.h"
+#include "tos/base/result.h"
+#include "tos/base/status.h"
 
 #include <iostream>
 #include <string>
@@ -214,14 +233,14 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 
 ## Span
 
-`<tos/span.h>` 提供 C++20 风格的 `tos::span<T, Extent>` 和运行时长度哨兵
+`<tos/base/span.h>` 提供 C++20 风格的 `tos::span<T, Extent>` 和运行时长度哨兵
 `tos::dynamic_extent`，可在 C++17 中表示连续内存的非拥有视图。视图不会延长
 数组、`std::array`、`std::vector` 或其他连续容器的生命周期；调用方必须确保底层
 存储在 span 及其子视图使用期间保持有效。它不提供同步，跨线程访问遵守底层存储的
 并发规则。
 
 ```cpp
-#include "tos/span.h"
+#include "tos/base/span.h"
 
 #include <vector>
 
@@ -241,7 +260,7 @@ span 本身不分配内存。由 C 数组、`std::array`、指针加长度以及
 
 ## 字符串工具
 
-`<tos/string.h>` 提供仅头文件的字节级字符串函数。`StrTrim`、`StrTrimLeft` 和
+`<tos/base/string.h>` 提供仅头文件的字节级字符串函数。`StrTrim`、`StrTrimLeft` 和
 `StrTrimRight` 仅移除 ASCII 空白字符（空格、tab、换行、回车、form-feed 和
 vertical-tab）；`StrToLower` 与 `StrToUpper` 仅转换 ASCII 字母。所有其他 UTF-8
 字节保持不变，位置、查找、分隔和替换也都按字节处理，不执行 Unicode 大小写折叠。
@@ -255,7 +274,7 @@ vertical-tab）；`StrToLower` 与 `StrToUpper` 仅转换 ASCII 字母。所有�
 传播，不使用 `Status` 或 `Result`。
 
 ```cpp
-#include <tos/string.h>
+#include <tos/base/string.h>
 
 #include <string>
 #include <vector>
@@ -270,14 +289,14 @@ int main() {
 
 ## 随机字符串
 
-`<tos/random.h>` 提供仅头文件的 `RandomString()`，用于生成测试数据、临时名称和其他
+`<tos/base/random.h>` 提供仅头文件的 `RandomString()`，用于生成测试数据、临时名称和其他
 非安全用途的随机字符串。默认字符集是 `kRandomAlphaNumeric`；还提供
 `kRandomDigits`、`kRandomLowercaseLetters`、`kRandomUppercaseLetters` 和
 `kRandomLetters`。调用方也可传入任意非空字节字符集，包含嵌入 NUL；每个字符集位置
 等概率采样，重复字节会提高该字节的出现权重。
 
 ```cpp
-#include <tos/random.h>
+#include <tos/base/random.h>
 
 #include <string>
 
@@ -299,14 +318,14 @@ int main() {
 
 ## 进程
 
-`<tos/process.h>` 提供不经过 shell 的 UTF-8 子进程启动。`ProcessOptions` 接受经过
+`<tos/base/process.h>` 提供不经过 shell 的 UTF-8 子进程启动。`ProcessOptions` 接受经过
 `Path::Parse()` 验证的可执行文件路径和独立参数，不搜索 PATH；相对可执行文件会按工作
 目录（或父进程当前目录）解析。`Process::Start()` 返回 move-only `Process`，其标准流继承
 父进程；`Wait()` 返回正常退出码或 POSIX 终止信号，`Terminate()` 终止直接子进程。仍在
 运行的 `Process` 析构时会尽力终止并回收它，但不会递归管理其后代进程。
 
 ```cpp
-#include <tos/process.h>
+#include <tos/base/process.h>
 
 #include <optional>
 #include <string>
@@ -336,12 +355,12 @@ int main() {
 
 ## 日志
 
-`<tos/logging.h>` 提供同步、线程安全的 `tos::Logger`。Logger 自己拥有控制台和文件 sink，不能复制或移动；所有公共方法可并发调用，单条记录、文件轮转和 flush 会串行化。默认 logger 名称为 `tos`、最低级别为 `Info`，控制台已启用：Trace、Debug 和 Info 写 stdout，Warning、Error 和 Critical 写 stderr。控制台格式为 UTC RFC3339 时间、级别、名称、消息和 `key=value` 字段。
+`<tos/base/logging.h>` 提供同步、线程安全的 `tos::Logger`。Logger 自己拥有控制台和文件 sink，不能复制或移动；所有公共方法可并发调用，单条记录、文件轮转和 flush 会串行化。默认 logger 名称为 `tos`、最低级别为 `Info`，控制台已启用：Trace、Debug 和 Info 写 stdout，Warning、Error 和 Critical 写 stderr。控制台格式为 UTC RFC3339 时间、级别、名称、消息和 `key=value` 字段。
 
 文件 sink 通过 `AddRotatingFileSink()` 添加，写入一行一个 JSON 对象，包含 `timestamp`、`level`、`logger`、`message` 和 `fields`。字段是确定性有序的 `LogFields`，值可为 `bool`、`int64_t`、`double` 或 `string`，写入 JSON 时保留类型。`RotatingFileOptions::path` 是经过 `Path::Parse()` 验证的 UTF-8 路径；目录必须由调用方预先创建。活动文件超过 `max_bytes` 前会轮转，`.1` 是最新归档，`max_files` 不包含活动文件。单条超过上限的记录仍会完整写入空活动文件。
 
 ```cpp
-#include <tos/logging.h>
+#include <tos/base/logging.h>
 
 #include <cstdint>
 #include <string>
@@ -376,12 +395,12 @@ Logger 不会检查或修改字段值。调用方负责避免记录密码、令�
 
 ## 文件与 UTF-8 路径
 
-`<tos/strconv.h>` 提供 `Utf8ToWide()` 与 `WideToUtf8()`；它们不依赖进程 locale，在 UTF-8 与平台 `wchar_t` 文本之间转换。无效 UTF-8、孤立代理项和非法 Unicode 标量返回 `kInvalidArgument`，嵌入空字符保留。Windows 专属的 `AnsiToWide()` 与 `WideToAnsi()` 使用当前 ANSI 代码页（`CP_ACP`）；无法无损转换时返回 `kInvalidArgument`，其他平台返回 `kUnimplemented`。`<tos/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
+`<tos/base/strconv.h>` 提供 `Utf8ToWide()` 与 `WideToUtf8()`；它们不依赖进程 locale，在 UTF-8 与平台 `wchar_t` 文本之间转换。无效 UTF-8、孤立代理项和非法 Unicode 标量返回 `kInvalidArgument`，嵌入空字符保留。Windows 专属的 `AnsiToWide()` 与 `WideToAnsi()` 使用当前 ANSI 代码页（`CP_ACP`）；无法无损转换时返回 `kInvalidArgument`，其他平台返回 `kUnimplemented`。`<tos/base/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
 
 `ReadTextFile`、`WriteTextFile`、`WriteTextFileAtomic`、`CreateDirectories`、`ListDirectory`、`GetFileMetadata`、`RemovePath` 和 `RenamePath` 使用 `Status` 或 `Result<T>` 报告 I/O 失败。文件内容按字节处理，不验证文本编码。目录列举按 UTF-8 字节排序；元数据不跟随符号链接。普通重命名拒绝覆盖目标，原子写入则在同目录写入临时文件后原子替换目标，保证读取方不会观察到半条内容，但不承诺断电持久性。
 
 ```cpp
-#include "tos/filesystem.h"
+#include "tos/base/filesystem.h"
 
 #include <iostream>
 #include <utility>
@@ -408,7 +427,7 @@ int main() {
 
 ## Windows 注册表
 
-`<tos/registry.h>` 提供本地 Windows 注册表的 UTF-8、RAII 和强类型键值操作。仅支持
+`<tos/base/registry.h>` 提供本地 Windows 注册表的 UTF-8、RAII 和强类型键值操作。仅支持
 `HKCU` 与 `HKLM`；Linux 和 macOS 上所有注册表入口返回 `kUnimplemented`，不会模拟成功。
 `RegistryKey` 是 move-only 的拥有型句柄，同一实例上的并发调用由调用方同步。`Open()` 可用
 空子项访问根键，`Create()`、`DeleteKey()` 和 `DeleteSubkey()` 拒绝空路径，避免删除根键；
@@ -421,7 +440,7 @@ Windows 会严格在 UTF-8 与 UTF-16 间转换。`std::string`、`RegistryExpan
 视图；实际可访问性仍受 UAC、ACL 和进程权限限制。
 
 ```cpp
-#include "tos/registry.h"
+#include "tos/base/registry.h"
 
 #include <cstdint>
 
@@ -441,7 +460,7 @@ int main() {
 
 ## 加密
 
-`<tos/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
+`<tos/base/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
 十六进制文本的 `HashHex()`、严格 RFC 4648
 Base64/Base64url、RSA 和 Ed25519。二进制输入为 `tos::span<const std::uint8_t>`，
 所有可预期失败通过 `Result` 或 `Status` 返回；输出缓冲区和文本的分配异常仍按 C++
@@ -449,7 +468,7 @@ Base64/Base64url、RSA 和 Ed25519。二进制输入为 `tos::span<const std::ui
 拒绝空白、混合字母表和非规范 pad bits。
 
 ```cpp
-#include "tos/crypto.h"
+#include "tos/base/crypto.h"
 
 #include <cstdint>
 #include <vector>
@@ -474,12 +493,12 @@ I/O、口令处理或流式摘要。库不擦除调用方提供的 PEM，也不�
 
 ## 时间
 
-`<tos/time.h>` 提供参考 Go `time.Time` 和 `time.Duration` 设计的 UTC 时间 API。`tos::Duration` 是有符号纳秒耗时，常量 `Nanosecond`、`Microsecond`、`Millisecond`、`Second`、`Minute` 和 `Hour` 可直接使用；`ParseDuration()` 接受类似 `1h2m3.4s` 的组合单位。`ToString()` 输出同样的紧凑表示。超出 `int64_t` 纳秒范围或格式非法时，解析返回 `Result<Duration>` 中的 `kInvalidArgument`。
+`<tos/base/time.h>` 提供参考 Go `time.Time` 和 `time.Duration` 设计的 UTC 时间 API。`tos::Duration` 是有符号纳秒耗时，常量 `Nanosecond`、`Microsecond`、`Millisecond`、`Second`、`Minute` 和 `Hour` 可直接使用；`ParseDuration()` 接受类似 `1h2m3.4s` 的组合单位。`ToString()` 输出同样的紧凑表示。超出 `int64_t` 纳秒范围或格式非法时，解析返回 `Result<Duration>` 中的 `kInvalidArgument`。
 
 `tos::Time` 是可复制、不可变的 UTC 瞬时值，也以 Unix epoch 起的有符号纳秒保存。`FromUnix(seconds, nanoseconds)` 与 Go 一样规范化纳秒分量，`Unix()`、`UnixMilliseconds()` 和 `UnixMicroseconds()` 对 epoch 前的非整单位向下取整；也提供 Go 命名的 `UnixMilli()`、`UnixMicro()` 和 `UnixNano()` 别名。`Add()` 和 `Sub()` 处理时间范围溢出时返回 `Result`，不静默回绕。`FormatRfc3339()` 始终输出 UTC `Z` 后缀；`ParseRfc3339()` 支持 UTC 和数值偏移输入，返回归一化的 UTC 值。
 
 ```cpp
-#include "tos/time.h"
+#include "tos/base/time.h"
 
 const auto delay = tos::ParseDuration("1h2m3.4s");
 const auto started = tos::ParseRfc3339("2026-09-09T08:00:00+08:00");
@@ -498,12 +517,12 @@ if (deadline) {
 
 ## 配置
 
-`<tos/config.h>` 提供 JSON/YAML 的只读配置树。`Config::Parse()` 仅接受 object/mapping 根节点，并把 JSON 与 YAML 解析失败、YAML 非字符串 mapping key、带 tag 的 YAML 节点、路径和类型错误转换为 `Status`：缺失路径为 `kNotFound`，其余预期输入错误为 `kInvalidArgument`。错误信息包含输入来源和（读取错误时）完整点路径。YAML 锚点或别名只要能展开为此树即可使用。分配失败仍按 C++ 异常传播。
+`<tos/base/config.h>` 提供 JSON/YAML 的只读配置树。`Config::Parse()` 仅接受 object/mapping 根节点，并把 JSON 与 YAML 解析失败、YAML 非字符串 mapping key、带 tag 的 YAML 节点、路径和类型错误转换为 `Status`：缺失路径为 `kNotFound`，其余预期输入错误为 `kInvalidArgument`。错误信息包含输入来源和（读取错误时）完整点路径。YAML 锚点或别名只要能展开为此树即可使用。分配失败仍按 C++ 异常传播。
 
 路径使用 `.` 分隔 object key，并可在数组处使用十进制索引；字面 `.` 和反斜杠分别写成 `\\.` 与 `\\\\`。键名保持大小写敏感。`Has()` 是便捷存在性检查，缺失或路径格式错误都返回 `false`；需要区分错误时使用对应的 `Get*` 接口。`GetBool`、`GetInt64`、`GetDouble` 和 `GetString` 都要求节点类型精确匹配；`GetUint64` 还接受可无损表示的非负有符号整数，不进行字符串、布尔和浮点转换。
 
 ```cpp
-#include "tos/config.h"
+#include "tos/base/config.h"
 
 const auto parsed = tos::Config::Parse(
     "service:\n  host: localhost\n  ports: [8080, 8443]\n",

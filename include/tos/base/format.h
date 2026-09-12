@@ -1,5 +1,5 @@
-#ifndef TOS_FORMAT_H_
-#define TOS_FORMAT_H_
+#ifndef TOS_BASE_FORMAT_H_
+#define TOS_BASE_FORMAT_H_
 
 // fmt is shipped in the public include tree. Header-only mode keeps tos::base
 // free of a separate fmt link dependency.
@@ -27,4 +27,4 @@ using ::fmt::vprintln;
 
 }  // namespace tos
 
-#endif  // TOS_FORMAT_H_
+#endif  // TOS_BASE_FORMAT_H_

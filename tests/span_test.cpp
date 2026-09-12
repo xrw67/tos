@@ -1,4 +1,4 @@
-#include "tos/span.h"
+#include "tos/base/span.h"
 
 #include <array>
 #include <gtest/gtest.h>

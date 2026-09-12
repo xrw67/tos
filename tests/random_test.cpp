@@ -1,4 +1,4 @@
-#include "tos/random.h"
+#include "tos/base/random.h"
 
 #include <atomic>
 #include <cstddef>

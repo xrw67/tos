@@ -1,12 +1,12 @@
-#ifndef TOS_STRCONV_H_
-#define TOS_STRCONV_H_
+#ifndef TOS_BASE_STRCONV_H_
+#define TOS_BASE_STRCONV_H_
 
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <string_view>
 
-#include "tos/result.h"
+#include "tos/base/result.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -246,4 +246,4 @@ inline void AppendUtf8(std::string* output, std::uint32_t value) {
 
 }  // namespace tos
 
-#endif  // TOS_STRCONV_H_
+#endif  // TOS_BASE_STRCONV_H_

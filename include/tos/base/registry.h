@@ -1,5 +1,5 @@
-#ifndef TOS_REGISTRY_H_
-#define TOS_REGISTRY_H_
+#ifndef TOS_BASE_REGISTRY_H_
+#define TOS_BASE_REGISTRY_H_
 
 #include <cstdint>
 #include <memory>
@@ -8,8 +8,8 @@
 #include <variant>
 #include <vector>
 
-#include "tos/result.h"
-#include "tos/status.h"
+#include "tos/base/result.h"
+#include "tos/base/status.h"
 
 namespace tos {
 
@@ -102,4 +102,4 @@ class [[nodiscard]] RegistryKey {
 
 }  // namespace tos
 
-#endif  // TOS_REGISTRY_H_
+#endif  // TOS_BASE_REGISTRY_H_

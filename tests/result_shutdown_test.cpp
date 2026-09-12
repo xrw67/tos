@@ -4,7 +4,7 @@
 #include <string_view>
 #include <utility>
 
-#include "tos/result.h"
+#include "tos/base/result.h"
 
 namespace {
 

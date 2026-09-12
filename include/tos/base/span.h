@@ -1,5 +1,5 @@
-#ifndef TOS_SPAN_H_
-#define TOS_SPAN_H_
+#ifndef TOS_BASE_SPAN_H_
+#define TOS_BASE_SPAN_H_
 
 #include <cstddef>
 
@@ -24,4 +24,4 @@ constexpr std::size_t dynamic_extent = nonstd::dynamic_extent;
 
 }  // namespace tos
 
-#endif  // TOS_SPAN_H_
+#endif  // TOS_BASE_SPAN_H_

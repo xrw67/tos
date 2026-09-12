@@ -1,4 +1,4 @@
-#include "tos/logging.h"
+#include "tos/base/logging.h"
 
 #include <atomic>
 #include <cstdint>
@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-#include "tos/json.h"
+#include "tos/base/json.h"
 
 namespace tos {
 namespace {

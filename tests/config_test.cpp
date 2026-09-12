@@ -1,4 +1,4 @@
-#include "tos/config.h"
+#include "tos/base/config.h"
 
 #include <atomic>
 #include <cstdint>

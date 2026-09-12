@@ -1,4 +1,4 @@
-#include "tos/registry.h"
+#include "tos/base/registry.h"
 
 #include <cstdint>
 #include <gtest/gtest.h>

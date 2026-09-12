@@ -1,4 +1,4 @@
-#include "tos/logging.h"
+#include "tos/base/logging.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <system_error>
 #include <vector>
 
-#include "tos/json.h"
+#include "tos/base/json.h"
 
 namespace tos {
 namespace {

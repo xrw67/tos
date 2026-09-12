@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "tos/format.h"
+#include "tos/base/format.h"
 
 namespace tos {
 namespace {

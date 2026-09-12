@@ -1,5 +1,5 @@
-#ifndef TOS_RANDOM_H_
-#define TOS_RANDOM_H_
+#ifndef TOS_BASE_RANDOM_H_
+#define TOS_BASE_RANDOM_H_
 
 #include <array>
 #include <cstddef>
@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-#include "tos/result.h"
+#include "tos/base/result.h"
 
 namespace tos {
 
@@ -94,4 +94,4 @@ inline Result<std::mt19937_64*> GetThreadLocalGenerator() {
 
 }  // namespace tos
 
-#endif  // TOS_RANDOM_H_
+#endif  // TOS_BASE_RANDOM_H_

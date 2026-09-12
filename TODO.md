@@ -15,8 +15,8 @@
 | 能力域 | Pallas 的公开能力 | tos 状态 |
 | --- | --- | --- |
 | 错误与结果 | 结构化 `Error`（域、原生码、根因）、`Result<T>`/`Result<void>`、Abseil 兼容 | 部分完成：保留 tos 自身的 move-only `Status`/`Result<T>`，并提供可操作的错误码分类与只读谓词；不移植 Pallas 错误模型。仍需补充传播辅助工具，结构化 payload 留待有原生错误信息需求时实现 |
-| Core | `Application`、`Runtime`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 未开始 |
-| 通信 | 生命周期安全的 `ServiceRegistry`/handle、异步 FIFO `EventBus`、RAII 订阅和背压 | 未开始 |
+| Core | `App`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 已完成（`tosapp`/`tos::app`）；Runtime 及调度能力留待后续 |
+| 通信 | 非拥有的类型化 `ServiceRegistry`、异步 FIFO `EventBus`、RAII 订阅和背压 | 部分完成：`Context` 支持显式服务指针注册、查询和注销；EventBus 未开始 |
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
 | 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
 | 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 部分完成：同步线程安全 Logger、控制台、按大小滚动 JSON Lines 文件、强类型字段与 flush/shutdown 已实现；异步队列和诊断上下文未实现 |
@@ -40,8 +40,8 @@
   - 验收：每个错误码在 API 合同中有明确的调用方处理语义，`ToString()`、比较、移动、`Result<T>` 传播和未知枚举值都有测试；0.x 迁移说明明确既有数值不变且不承诺 Abseil 枚举或 ABI 兼容。
 - [ ] `P0-02b` 提供 `Status`/`Result<T>` 传播辅助工具：增加经测试的 `TOS_RETURN_IF_ERROR` 和 `TOS_ASSIGN_OR_RETURN` 宏或等价 C++17 接口，避免调用方手写易错的 move-only 错误传播。
   - 验收：操作数恰好求值一次，错误以 `std::move` 传播，成功值可移动提取；在 `if`/`else`、临时对象、命名对象和异常构造路径中均有编译与运行测试，宏不耦合 logger 或其他 Runtime 组件。
-- [x] `P0-03` 将当前实现收敛为单一 `tosbase` 静态库，并仅公开 `tos::base` 消费 target；Foundation/Task/Platform/Network/IPC 的后续能力不得形成反向依赖。
-  - 验收：`tosbase` 传递已实现组件所需依赖；minimal、完整测试/示例和独立 `add_subdirectory` 消费工程均可构建。
+- [x] `P0-03` 将基础能力收敛为 `tosbase` 静态库，并公开 `tos::base`；模块化 Application 作为独立 `tosapp`/`tos::app` 构建，依赖方向保持单向。
+  - 验收：两个目标传递所需依赖；minimal、完整测试/示例和 `tos::app` 消费目标均可构建。
 - [ ] `P0-04` 增加安装、导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。
   - 验收：全新临时消费工程分别以两种方式构建并运行。
 - [ ] `P0-05` 建立质量门禁：Debug/Release、ASan/UBSan、TSan（支持的平台）、clang-format、clang-tidy、coverage、fuzz 的 CMake presets；为 CTest 统一标签和超时。
@@ -68,12 +68,12 @@
   - 验收：饱和拒绝、任务异常、任务内 shutdown、取消与析构竞态均有测试；不为每个任务创建线程。
 - [ ] `P2-02` 实现基于单调时钟的 `Scheduler`，支持一次性/周期性任务和取消。
   - 验收：不为每个定时器建线程；覆盖漂移、长延迟、取消与最后一次执行竞争。
-- [ ] `P2-03` 实现 `ServiceRegistry`：类型化服务、注册 token 和取得 handle 都是 RAII；注销不产生悬空调用。
-  - 验收：并发 get/unregister、服务停止和 handle 生命周期测试通过。
+- [x] `P2-03` 实现非拥有的 `ServiceRegistry`：`Context` 提供类型化 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过 RAII 归还借用，并在注销成功后销毁服务。Config/Logger 由 Context 直接提供，不注册为 Service。
+  - 验收：重复、空指针、缺失、期望指针不匹配、未归还借用的注销拒绝和并发注册表访问均有测试；Config/Logger 由 Context 直接提供，注册表不删除或保活服务对象。
 - [ ] `P2-04` 实现 `EventBus`：拥有事件副本的异步 FIFO 发布、同步发布、RAII subscription 和可配置背压。
   - 验收：订阅/发布/reset 并发安全，明确报告无订阅者、拒绝、丢弃和关闭状态。
-- [ ] `P2-05` 实现 `Module`、`ModuleManager`、`Context`、`Runtime` 与 `Application`：依赖图校验、确定性拓扑排序、初始化/启动回滚、反向停止和不可重启策略。
-  - 验收：覆盖重复名、缺失依赖、环、迟注册、部分启动失败、重复 Stop 和终止信号优雅退出。
+- [x] `P2-05` 实现模块化 `App` 框架：`tosapp`/`tos::app` 提供 `App`、`Module`、`Context` 和 App 状态机、依赖图校验、确定性拓扑排序、OnLoad 加载回滚及 OnUnload 反向清理；Executor、Scheduler、EventBus 等后续能力仍未实现。
+  - 验收：覆盖重复名、缺失依赖、环、迟注册、部分启动失败、重复 Stop、并发控制器调用和析构清理。
 
 ### P3：补齐通用 Foundation 与可观测性
 

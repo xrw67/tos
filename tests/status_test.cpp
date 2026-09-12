@@ -1,4 +1,4 @@
-#include "tos/status.h"
+#include "tos/base/status.h"
 
 #include <gtest/gtest.h>
 #include <string>

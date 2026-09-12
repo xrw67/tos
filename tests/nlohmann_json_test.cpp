@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "tos/json.h"
+#include "tos/base/json.h"
 
 namespace tos {
 namespace {

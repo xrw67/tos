@@ -1,5 +1,5 @@
-#ifndef TOS_LOGGING_H_
-#define TOS_LOGGING_H_
+#ifndef TOS_BASE_LOGGING_H_
+#define TOS_BASE_LOGGING_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -10,10 +10,10 @@
 #include <utility>
 #include <variant>
 
-#include "tos/filesystem.h"
-#include "tos/format.h"
-#include "tos/status.h"
-#include "tos/time.h"
+#include "tos/base/filesystem.h"
+#include "tos/base/format.h"
+#include "tos/base/status.h"
+#include "tos/base/time.h"
 
 namespace tos {
 
@@ -163,4 +163,4 @@ class Logger {
 
 }  // namespace tos
 
-#endif  // TOS_LOGGING_H_
+#endif  // TOS_BASE_LOGGING_H_

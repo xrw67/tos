@@ -7,6 +7,9 @@ target_link_libraries(tos_logging_example PRIVATE tos::base)
 add_executable(tos_process_example process.cpp)
 target_link_libraries(tos_process_example PRIVATE tos::base)
 
+add_executable(tos_application_example application.cpp)
+target_link_libraries(tos_application_example PRIVATE tos::app)
+
 if(BUILD_TESTING)
     add_test(
         NAME tos.example
@@ -21,4 +24,7 @@ if(BUILD_TESTING)
 
     add_test(NAME tos.process_example COMMAND tos_process_example)
     set_tests_properties(tos.process_example PROPERTIES LABELS example TIMEOUT 30)
+
+    add_test(NAME tos.application_example COMMAND tos_application_example)
+    set_tests_properties(tos.application_example PROPERTIES LABELS example TIMEOUT 30)
 endif()

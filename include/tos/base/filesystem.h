@@ -1,5 +1,5 @@
-#ifndef TOS_FILESYSTEM_H_
-#define TOS_FILESYSTEM_H_
+#ifndef TOS_BASE_FILESYSTEM_H_
+#define TOS_BASE_FILESYSTEM_H_
 
 #include <cstdint>
 #include <string>
@@ -7,9 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "tos/result.h"
-#include "tos/status.h"
-#include "tos/strconv.h"
+#include "tos/base/result.h"
+#include "tos/base/status.h"
+#include "tos/base/strconv.h"
 
 namespace tos {
 
@@ -119,4 +119,4 @@ struct FileMetadata {
 
 }  // namespace tos
 
-#endif  // TOS_FILESYSTEM_H_
+#endif  // TOS_BASE_FILESYSTEM_H_

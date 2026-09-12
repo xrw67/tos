@@ -1,5 +1,5 @@
-#ifndef TOS_CRYPTO_H_
-#define TOS_CRYPTO_H_
+#ifndef TOS_BASE_CRYPTO_H_
+#define TOS_BASE_CRYPTO_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -8,8 +8,8 @@
 #include <string_view>
 #include <vector>
 
-#include "tos/result.h"
-#include "tos/span.h"
+#include "tos/base/result.h"
+#include "tos/base/span.h"
 
 namespace tos {
 
@@ -205,4 +205,4 @@ Status Ed25519Verify(const Ed25519PublicKey& key, span<const std::uint8_t> messa
 
 }  // namespace tos
 
-#endif  // TOS_CRYPTO_H_
+#endif  // TOS_BASE_CRYPTO_H_

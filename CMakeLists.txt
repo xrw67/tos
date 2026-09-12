@@ -76,6 +76,12 @@ if(WIN32)
     target_link_libraries(tosbase PUBLIC Advapi32)
 endif()
 
+add_library(tosapp STATIC src/app/app.cpp src/app/context.cpp src/app/service_registry.cpp)
+add_library(tos::app ALIAS tosapp)
+target_include_directories(tosapp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(tosapp PUBLIC cxx_std_17)
+target_link_libraries(tosapp PUBLIC tos::base)
+
 include(CTest)
 
 add_subdirectory(third_party)

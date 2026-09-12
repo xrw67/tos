@@ -1,5 +1,5 @@
-#ifndef TOS_JSON_H_
-#define TOS_JSON_H_
+#ifndef TOS_BASE_JSON_H_
+#define TOS_BASE_JSON_H_
 
 // nlohmann/json is shipped in the public include tree so tos consumers only
 // need the tos::base target or the include directory.
@@ -15,4 +15,4 @@ using ::nlohmann::ordered_json;
 
 }  // namespace tos
 
-#endif  // TOS_JSON_H_
+#endif  // TOS_BASE_JSON_H_

@@ -1,4 +1,4 @@
-#include "tos/registry.h"
+#include "tos/base/registry.h"
 
 #include <algorithm>
 #include <cstring>
@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "tos/strconv.h"
+#include "tos/base/strconv.h"
 
 #ifdef _WIN32
 #include <windows.h>

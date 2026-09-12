@@ -6,8 +6,8 @@
 #include <string>
 #include <utility>
 
-#include "tos/result.h"
-#include "tos/status.h"
+#include "tos/base/result.h"
+#include "tos/base/status.h"
 
 namespace {
 

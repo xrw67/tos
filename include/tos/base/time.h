@@ -1,5 +1,5 @@
-#ifndef TOS_TIME_H_
-#define TOS_TIME_H_
+#ifndef TOS_BASE_TIME_H_
+#define TOS_BASE_TIME_H_
 
 #include <atomic>
 #include <cctype>
@@ -10,7 +10,7 @@
 #include <string_view>
 #include <utility>
 
-#include "tos/result.h"
+#include "tos/base/result.h"
 
 namespace tos {
 
@@ -685,4 +685,4 @@ class MonotonicClock final {
 
 }  // namespace tos
 
-#endif  // TOS_TIME_H_
+#endif  // TOS_BASE_TIME_H_
