@@ -74,7 +74,7 @@ target_link_libraries(your_app PRIVATE tos::app)
 
 `tos::App` 独占 `std::unique_ptr<tos::Module>` 模块，并按依赖 DAG 的确定性拓扑顺序执行 `OnLoad`，停止时反向执行 `OnUnload`。加载失败会自动回滚并进入不可重启的 `kFailed` 状态；停止会继续清理全部模块并报告首个错误。App 的 `Start`、`Stop` 和状态查询可并发调用，但回调始终串行，同一 App 不支持生命周期回调重入。
 
-`Context` 是由 `App` 创建并通过 `App::context()` 提供给调用方和模块的精确 C++ 类型服务容器。`App` 管理内部 `ServiceRegistry` 的生命周期，`Context::Impl` 只保留对它的引用，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+`Context` 是由 `App` 创建并通过 `App::context()` 提供给调用方和模块的精确 C++ 类型服务容器。`App` 管理内部 `ServiceRegistry` 和 `EventBus` 的生命周期，`Context::Impl` 只保留对它们的引用，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。`context.events()` 返回同步 EventBus：`PublishSync` 只在调用方线程内、按订阅注册顺序调用同类型处理器，事件参数只在调用期间有效；无订阅者返回 `kNotFound`，关闭后订阅或发布返回 `kFailedPrecondition`。`Subscription` 离开作用域或调用 `Reset()` 时取消订阅，并等待其他线程中的在途回调完成；处理器必须同步其共享状态，处理器异常会返回给同步发布者。App 停止时先关闭 EventBus 并等待在途回调，再反向卸载模块。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
 
 ```cpp
 tos::App app;
@@ -83,7 +83,7 @@ if (!app.Start()) return 1;
 app.Stop();
 ```
 
-0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务与模块接口位于 `<tos/app/context.h>`、`<tos/app/service.h>` 和 `<tos/app/module.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger 不再通过 `ConfigService`/`LoggerService` 获取，改用 `Context::config()` 和 `Context::logger()`。
+0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event_bus.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger 不再通过 `ConfigService`/`LoggerService` 获取，改用 `Context::config()` 和 `Context::logger()`。
 
 ### 自动化验证
 

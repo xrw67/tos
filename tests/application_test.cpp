@@ -32,6 +32,10 @@ struct TestService final : tos::Service {
 
 struct OtherService final : tos::Service {};
 
+struct AppEvent {
+    int value;
+};
+
 class TestModule final : public tos::Module {
    public:
     explicit TestModule(ModuleSpec spec) : spec_(std::move(spec)) {}
@@ -182,6 +186,22 @@ TEST(AppTest, ContextProvidesConfigAndLoggerDirectly) {
     EXPECT_EQ(&const_context.config(), &app.config());
     EXPECT_EQ(&context.logger(), &app.logger());
     ASSERT_TRUE(context.logger().Info("context logger ready"));
+}
+
+TEST(AppTest, ContextProvidesEventBusAndStopClosesIt) {
+    tos::App app(QuietOptions());
+    ASSERT_TRUE(app.Start());
+    int observed = 0;
+    auto subscription_result = app.context().events().Subscribe<AppEvent>(
+        [&](const AppEvent& event) { observed = event.value; });
+    ASSERT_TRUE(subscription_result);
+    auto subscription = std::move(subscription_result).value();
+    ASSERT_TRUE(app.context().events().PublishSync(AppEvent{7}));
+    EXPECT_EQ(observed, 7);
+    ASSERT_TRUE(app.Stop());
+    EXPECT_EQ(app.context().events().PublishSync(AppEvent{8}).code(),
+              tos::StatusCode::kFailedPrecondition);
+    EXPECT_TRUE(subscription.Reset());
 }
 
 TEST(AppTest, ServiceHandleIsMoveOnlyAndReleasesOnScopeExit) {

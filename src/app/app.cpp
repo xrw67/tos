@@ -15,12 +15,13 @@ struct App::Impl {
         : name(std::move(options.name)),
           config(std::move(options.config)),
           logger(std::move(options.log)),
-          context(service_registry, config, logger) {}
+          context(service_registry, event_bus, config, logger) {}
 
     std::string name;
     Config config;
     Logger logger;
     ServiceRegistry service_registry;
+    EventBus event_bus;
     Context context;
     ModuleRegistry module_registry;
     mutable std::recursive_mutex mutex;
@@ -126,7 +127,7 @@ Status App::Stop() {
     if (!impl_) {
         return InvalidState("Stop");
     }
-    std::lock_guard<std::recursive_mutex> lock(impl_->mutex);
+    std::unique_lock<std::recursive_mutex> lock(impl_->mutex);
     if (impl_->state == AppState::kCreated || impl_->state == AppState::kStopped) {
         return Status::Ok();
     }
@@ -138,7 +139,9 @@ Status App::Stop() {
     }
 
     impl_->state = AppState::kStopping;
-    Status failure;
+    lock.unlock();
+    Status failure = impl_->event_bus.Shutdown();
+    lock.lock();
     const auto invoke = [this](std::size_t index, std::string_view phase) {
         impl_->callback_thread = std::this_thread::get_id();
         Status result;

@@ -6,6 +6,7 @@
 #include <typeindex>
 #include <utility>
 
+#include "tos/app/event_bus.h"
 #include "tos/app/service.h"
 #include "tos/base/config.h"
 #include "tos/base/logging.h"
@@ -97,6 +98,10 @@ class Context {
     /// does not throw. Logger operations remain safe for concurrent callers.
     [[nodiscard]] Logger& logger() noexcept;
 
+    /// Returns the App-owned synchronous EventBus. The reference remains valid while the owning
+    /// App is alive and does not throw. EventBus operations are safe for concurrent callers.
+    [[nodiscard]] EventBus& events() noexcept;
+
     /// Registers a non-owning, unqualified Service pointer. Null returns kInvalidArgument; a
     /// duplicate exact type returns kAlreadyExists. Allocation and mutex exceptions propagate.
     template <typename T>
@@ -146,7 +151,7 @@ class Context {
 
     class Impl;
 
-    Context(ServiceRegistry& registry, const Config& config, Logger& logger);
+    Context(ServiceRegistry& registry, EventBus& events, const Config& config, Logger& logger);
 
     [[nodiscard]] Status RegisterService(std::type_index type, const Service* service);
     [[nodiscard]] const Service* AcquireService(std::type_index type) const;

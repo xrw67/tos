@@ -81,6 +81,7 @@ add_library(
     STATIC
     src/app/app.cpp
     src/app/context.cpp
+    src/app/event_bus.cpp
     src/app/module_registry.cpp
     src/app/service_registry.cpp)
 add_library(tos::app ALIAS tosapp)

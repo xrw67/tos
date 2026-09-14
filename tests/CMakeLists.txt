@@ -16,6 +16,7 @@ add_executable(tos_unit_tests
     crypto_test.cpp
     logging_test.cpp
     application_test.cpp
+    event_bus_test.cpp
 )
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
