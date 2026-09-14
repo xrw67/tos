@@ -74,7 +74,7 @@ target_link_libraries(your_app PRIVATE tos::app)
 
 `tos::App` 独占 `std::unique_ptr<tos::Module>` 模块，并按依赖 DAG 的确定性拓扑顺序执行 `OnLoad`，停止时反向执行 `OnUnload`。加载失败会自动回滚并进入不可重启的 `kFailed` 状态；停止会继续清理全部模块并报告首个错误。App 的 `Start`、`Stop` 和状态查询可并发调用，但回调始终串行，同一 App 不支持生命周期回调重入。
 
-`Context` 是抽象的精确 C++ 类型服务容器，由 `App` 创建并通过 `App::context()` 提供给调用方和模块。其内部 `ServiceRegistry` 由 App 管理生命周期，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+`Context` 是由 `App` 创建并通过 `App::context()` 提供给调用方和模块的精确 C++ 类型服务容器。`App` 管理内部 `ServiceRegistry` 的生命周期，`Context::Impl` 只保留对它的引用，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
 
 ```cpp
 tos::App app;

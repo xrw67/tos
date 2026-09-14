@@ -1,25 +1,42 @@
-#include "context_impl.h"
+#include "tos/app/context.h"
+
 #include "service_registry.h"
 
 namespace tos {
 
-ContextImpl::ContextImpl(ServiceRegistry& registry, const Config& config, Logger& logger) noexcept
-    : Context(config, logger), registry_(registry) {}
+class Context::Impl {
+   public:
+    Impl(ServiceRegistry& registry_value, const Config& config_value, Logger& logger_value) noexcept
+        : registry(registry_value), config(config_value), logger(logger_value) {}
 
-Status ContextImpl::RegisterService(std::type_index type, const Service* service) {
-    return registry_.Register(type, service);
+    ServiceRegistry& registry;
+    const Config& config;
+    Logger& logger;
+};
+
+Context::Context(ServiceRegistry& registry, const Config& config, Logger& logger)
+    : impl_(std::make_unique<Impl>(registry, config, logger)) {}
+
+Context::~Context() noexcept = default;
+
+const Config& Context::config() const noexcept { return impl_->config; }
+
+Logger& Context::logger() noexcept { return impl_->logger; }
+
+Status Context::RegisterService(std::type_index type, const Service* service) {
+    return impl_->registry.Register(type, service);
 }
 
-const Service* ContextImpl::AcquireService(std::type_index type) const {
-    return registry_.Acquire(type);
+const Service* Context::AcquireService(std::type_index type) const {
+    return impl_->registry.Acquire(type);
 }
 
-Status ContextImpl::ReleaseService(std::type_index type, const Service* service) const {
-    return registry_.Release(type, service);
+Status Context::ReleaseService(std::type_index type, const Service* service) const {
+    return impl_->registry.Release(type, service);
 }
 
-Status ContextImpl::UnregisterService(std::type_index type, const Service* expected) {
-    return registry_.Unregister(type, expected);
+Status Context::UnregisterService(std::type_index type, const Service* expected) {
+    return impl_->registry.Unregister(type, expected);
 }
 
 }  // namespace tos

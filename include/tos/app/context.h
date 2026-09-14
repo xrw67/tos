@@ -1,6 +1,7 @@
 #ifndef TOS_APP_CONTEXT_H_
 #define TOS_APP_CONTEXT_H_
 
+#include <memory>
 #include <type_traits>
 #include <typeindex>
 #include <utility>
@@ -13,6 +14,7 @@
 namespace tos {
 
 class Context;
+class ServiceRegistry;
 
 /// Move-only RAII borrow of a registered service.
 ///
@@ -85,15 +87,15 @@ class Context {
     Context& operator=(const Context&) = delete;
     Context(Context&&) = delete;
     Context& operator=(Context&&) = delete;
-    virtual ~Context() = default;
+    ~Context() noexcept;
 
     /// Returns the App-owned immutable configuration. The reference remains valid while the
     /// owning App is alive and does not throw.
-    [[nodiscard]] const Config& config() const noexcept { return *config_; }
+    [[nodiscard]] const Config& config() const noexcept;
 
     /// Returns the App-owned logger. The reference remains valid while the owning App is alive and
     /// does not throw. Logger operations remain safe for concurrent callers.
-    [[nodiscard]] Logger& logger() noexcept { return *logger_; }
+    [[nodiscard]] Logger& logger() noexcept;
 
     /// Registers a non-owning, unqualified Service pointer. Null returns kInvalidArgument; a
     /// duplicate exact type returns kAlreadyExists. Allocation and mutex exceptions propagate.
@@ -137,22 +139,21 @@ class Context {
         return UnregisterService(std::type_index(typeid(T)), expected);
     }
 
-   protected:
+   private:
+    friend class App;
     template <typename>
     friend class ServiceHandle;
 
-    Context(const Config& config, Logger& logger) noexcept : config_(&config), logger_(&logger) {}
+    class Impl;
 
-    [[nodiscard]] virtual Status RegisterService(std::type_index type, const Service* service) = 0;
-    [[nodiscard]] virtual const Service* AcquireService(std::type_index type) const = 0;
-    [[nodiscard]] virtual Status ReleaseService(std::type_index type,
-                                                const Service* service) const = 0;
-    [[nodiscard]] virtual Status UnregisterService(std::type_index type,
-                                                   const Service* expected) = 0;
+    Context(ServiceRegistry& registry, const Config& config, Logger& logger);
 
-   private:
-    const Config* config_;
-    Logger* logger_;
+    [[nodiscard]] Status RegisterService(std::type_index type, const Service* service);
+    [[nodiscard]] const Service* AcquireService(std::type_index type) const;
+    [[nodiscard]] Status ReleaseService(std::type_index type, const Service* service) const;
+    [[nodiscard]] Status UnregisterService(std::type_index type, const Service* expected);
+
+    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace tos

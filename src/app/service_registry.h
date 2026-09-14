@@ -9,7 +9,7 @@
 
 namespace tos {
 
-// Internal implementation detail. The public service API is Context; App owns this registry.
+// Internal implementation detail. App owns the registry; Context only references it.
 class ServiceRegistry {
    public:
     [[nodiscard]] Status Register(std::type_index type, const Service* service);

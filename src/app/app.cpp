@@ -1,23 +1,16 @@
 #include "tos/app/app.h"
 
 #include <exception>
-#include <map>
 #include <mutex>
-#include <queue>
 #include <thread>
+#include <vector>
 
-#include "context_impl.h"
+#include "module_registry.h"
 #include "service_registry.h"
 
 namespace tos {
 
 struct App::Impl {
-    struct ModuleEntry {
-        std::unique_ptr<Module> module;
-        std::string name;
-        std::vector<std::string> dependencies;
-    };
-
     explicit Impl(AppOptions options)
         : name(std::move(options.name)),
           config(std::move(options.config)),
@@ -28,11 +21,8 @@ struct App::Impl {
     Config config;
     Logger logger;
     ServiceRegistry service_registry;
-    ContextImpl context;
-    std::vector<ModuleEntry> modules;
-    std::map<std::string, std::size_t> indices;
-    std::vector<std::size_t> order;
-    std::vector<std::size_t> loaded;
+    Context context;
+    ModuleRegistry module_registry;
     mutable std::recursive_mutex mutex;
     AppState state = AppState::kCreated;
     std::thread::id callback_thread;
@@ -75,27 +65,7 @@ Status App::AddModule(std::unique_ptr<Module> module) {
     if (impl_->state != AppState::kCreated) {
         return InvalidState("AddModule");
     }
-    if (!module) {
-        return Status(StatusCode::kInvalidArgument, "module must not be null");
-    }
-    Module* module_ptr = module.get();
-    std::string name = module_ptr->Name();
-    if (name.empty()) {
-        return Status(StatusCode::kInvalidArgument, "module name must not be empty");
-    }
-    if (impl_->indices.count(name) != 0) {
-        return Status(StatusCode::kAlreadyExists, "module name is already registered");
-    }
-    std::vector<std::string> dependencies = module_ptr->Dependencies();
-    for (const std::string& dependency : dependencies) {
-        if (dependency.empty() || dependency == name) {
-            return Status(StatusCode::kInvalidArgument, "module dependency is invalid");
-        }
-    }
-    const std::size_t index = impl_->modules.size();
-    impl_->indices.emplace(name, index);
-    impl_->modules.push_back({std::move(module), std::move(name), std::move(dependencies)});
-    return Status::Ok();
+    return impl_->module_registry.Register(std::move(module));
 }
 
 Status App::Start() {
@@ -108,74 +78,43 @@ Status App::Start() {
     }
     impl_->state = AppState::kStarting;
 
-    std::vector<std::vector<std::size_t>> outgoing(impl_->modules.size());
-    std::vector<std::size_t> indegree(impl_->modules.size(), 0);
-    for (std::size_t index = 0; index < impl_->modules.size(); ++index) {
-        for (const std::string& dependency : impl_->modules[index].dependencies) {
-            const auto iterator = impl_->indices.find(dependency);
-            if (iterator == impl_->indices.end()) {
-                impl_->state = AppState::kFailed;
-                return Status(StatusCode::kNotFound, "module dependency is not registered");
-            }
-            outgoing[iterator->second].push_back(index);
-            ++indegree[index];
-        }
-    }
-
-    std::priority_queue<std::pair<std::string, std::size_t>,
-                        std::vector<std::pair<std::string, std::size_t>>,
-                        std::greater<std::pair<std::string, std::size_t>>>
-        ready;
-    for (std::size_t index = 0; index < indegree.size(); ++index) {
-        if (indegree[index] == 0) {
-            ready.emplace(impl_->modules[index].name, index);
-        }
-    }
-    impl_->order.clear();
-    while (!ready.empty()) {
-        const auto current = ready.top();
-        ready.pop();
-        impl_->order.push_back(current.second);
-        for (const std::size_t dependent : outgoing[current.second]) {
-            if (--indegree[dependent] == 0) {
-                ready.emplace(impl_->modules[dependent].name, dependent);
-            }
-        }
-    }
-    if (impl_->order.size() != impl_->modules.size()) {
+    auto load_order = impl_->module_registry.ResolveLoadOrder();
+    if (!load_order) {
         impl_->state = AppState::kFailed;
-        return Status(StatusCode::kInvalidArgument, "module dependency graph contains a cycle");
+        return std::move(load_order).status();
     }
+    std::vector<std::size_t> order = std::move(load_order).value();
 
     const auto invoke = [this](std::size_t index, std::string_view phase) {
         impl_->callback_thread = std::this_thread::get_id();
         Status result;
         try {
-            result = phase == "OnLoad" ? impl_->modules[index].module->OnLoad(impl_->context)
-                                       : impl_->modules[index].module->OnUnload(impl_->context);
+            result = phase == "OnLoad" ? impl_->module_registry.Get(index).OnLoad(impl_->context)
+                                       : impl_->module_registry.Get(index).OnUnload(impl_->context);
         } catch (const std::exception&) {
-            result = CallbackException(impl_->modules[index].name, phase);
+            result = CallbackException(impl_->module_registry.Name(index), phase);
         } catch (...) {
-            result = CallbackException(impl_->modules[index].name, phase);
+            result = CallbackException(impl_->module_registry.Name(index), phase);
         }
         impl_->callback_thread = std::thread::id();
         return result;
     };
 
     Status failure;
-    for (const std::size_t index : impl_->order) {
+    for (const std::size_t index : order) {
         Status result = invoke(index, "OnLoad");
         if (!result) {
             failure = std::move(result);
             break;
         }
-        impl_->loaded.push_back(index);
+        impl_->module_registry.MarkLoaded(index);
     }
     if (!failure.ok()) {
-        for (auto iterator = impl_->loaded.rbegin(); iterator != impl_->loaded.rend(); ++iterator) {
+        for (auto iterator = impl_->module_registry.loaded().rbegin();
+             iterator != impl_->module_registry.loaded().rend(); ++iterator) {
             static_cast<void>(invoke(*iterator, "OnUnload"));
         }
-        impl_->loaded.clear();
+        impl_->module_registry.ClearLoaded();
         impl_->state = AppState::kFailed;
         return failure;
     }
@@ -204,20 +143,21 @@ Status App::Stop() {
         impl_->callback_thread = std::this_thread::get_id();
         Status result;
         try {
-            result = impl_->modules[index].module->OnUnload(impl_->context);
+            result = impl_->module_registry.Get(index).OnUnload(impl_->context);
         } catch (const std::exception&) {
-            result = CallbackException(impl_->modules[index].name, phase);
+            result = CallbackException(impl_->module_registry.Name(index), phase);
         } catch (...) {
-            result = CallbackException(impl_->modules[index].name, phase);
+            result = CallbackException(impl_->module_registry.Name(index), phase);
         }
         impl_->callback_thread = std::thread::id();
         return result;
     };
 
-    for (auto iterator = impl_->loaded.rbegin(); iterator != impl_->loaded.rend(); ++iterator) {
+    for (auto iterator = impl_->module_registry.loaded().rbegin();
+         iterator != impl_->module_registry.loaded().rend(); ++iterator) {
         failure = FirstFailure(std::move(failure), invoke(*iterator, "OnUnload"));
     }
-    impl_->loaded.clear();
+    impl_->module_registry.ClearLoaded();
     impl_->state = failure.ok() ? AppState::kStopped : AppState::kFailed;
     return failure;
 }
