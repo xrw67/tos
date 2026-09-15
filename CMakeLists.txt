@@ -67,7 +67,9 @@ add_library(
     src/base/filesystem.cpp
     src/base/logging.cpp
     src/base/process.cpp
-    src/base/registry.cpp)
+    src/base/registry.cpp
+    src/base/scheduler.cpp
+    src/base/thread_pool.cpp)
 add_library(tos::base ALIAS tosbase)
 target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(tosbase PUBLIC cxx_std_17)

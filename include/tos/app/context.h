@@ -1,7 +1,6 @@
 #ifndef TOS_APP_CONTEXT_H_
 #define TOS_APP_CONTEXT_H_
 
-#include <memory>
 #include <type_traits>
 #include <typeindex>
 #include <utility>
@@ -9,13 +8,14 @@
 #include "tos/app/event_bus.h"
 #include "tos/app/service.h"
 #include "tos/base/config.h"
+#include "tos/base/executor.h"
 #include "tos/base/logging.h"
+#include "tos/base/scheduler.h"
 #include "tos/base/status.h"
 
 namespace tos {
 
 class Context;
-class ServiceRegistry;
 
 /// Move-only RAII borrow of a registered service.
 ///
@@ -75,32 +75,41 @@ class ServiceHandle final {
     T* service_{nullptr};
 };
 
-/// Type-indexed service registry supplied by App.
+/// Application services and infrastructure supplied to modules.
 ///
-/// Context does not own services. Each non-empty GetService handle keeps one borrow active until
-/// Reset() or handle destruction, after which its owner may unregister and destroy the service.
-/// Context synchronizes registry operations only; services provide their own synchronization.
-/// Context is owned by App and must not outlive it. Config and Logger references are valid only
-/// while the owning App is alive.
+/// This is an abstract interface. App supplies its own implementation, and alternate hosts may
+/// implement it for a different application environment. Context does not own services. Each
+/// non-empty GetService handle keeps one borrow active until Reset() or handle destruction, after
+/// which its owner may unregister and destroy the service. Implementations synchronize registry
+/// operations only; services provide their own synchronization. References returned by this
+/// interface remain valid only for the lifetime documented by the implementation.
 class Context {
    public:
     Context(const Context&) = delete;
     Context& operator=(const Context&) = delete;
     Context(Context&&) = delete;
     Context& operator=(Context&&) = delete;
-    ~Context() noexcept;
+    virtual ~Context() noexcept = default;
 
-    /// Returns the App-owned immutable configuration. The reference remains valid while the
-    /// owning App is alive and does not throw.
-    [[nodiscard]] const Config& config() const noexcept;
+    /// Returns immutable configuration. The reference lifetime is defined by the implementation
+    /// and this accessor does not throw.
+    [[nodiscard]] virtual const Config& config() const noexcept = 0;
 
-    /// Returns the App-owned logger. The reference remains valid while the owning App is alive and
-    /// does not throw. Logger operations remain safe for concurrent callers.
-    [[nodiscard]] Logger& logger() noexcept;
+    /// Returns the logger. The reference lifetime is defined by the implementation and this
+    /// accessor does not throw. Logger operations remain safe for concurrent callers.
+    [[nodiscard]] virtual Logger& logger() noexcept = 0;
 
-    /// Returns the App-owned synchronous EventBus. The reference remains valid while the owning
-    /// App is alive and does not throw. EventBus operations are safe for concurrent callers.
-    [[nodiscard]] EventBus& events() noexcept;
+    /// Returns the synchronous EventBus. The reference lifetime is defined by the implementation
+    /// and this accessor does not throw. EventBus operations are safe for concurrent callers.
+    [[nodiscard]] virtual EventBus& events() noexcept = 0;
+
+    /// Returns the shared executor. The reference lifetime is defined by the implementation. It
+    /// supports concurrent submissions but does not grant shutdown control.
+    [[nodiscard]] virtual Executor& executor() noexcept = 0;
+
+    /// Returns the monotonic scheduler. The reference lifetime is defined by the implementation;
+    /// it supports concurrent scheduling but does not grant shutdown control.
+    [[nodiscard]] virtual ScheduledExecutor& scheduler() noexcept = 0;
 
     /// Registers a non-owning, unqualified Service pointer. Null returns kInvalidArgument; a
     /// duplicate exact type returns kAlreadyExists. Allocation and mutex exceptions propagate.
@@ -113,7 +122,7 @@ class Context {
         if (!service) {
             return Status(StatusCode::kInvalidArgument, "service pointer must not be null");
         }
-        return RegisterService(std::type_index(typeid(T)), service);
+        return RegisterServiceImpl(std::type_index(typeid(T)), service);
     }
 
     /// Borrows the registered Service through a move-only RAII handle, or returns an empty handle
@@ -125,7 +134,7 @@ class Context {
                       "requested service type must not be cv-qualified");
         static_assert(std::is_base_of_v<Service, T>,
                       "requested service type must derive from tos::Service");
-        const auto* service = AcquireService(std::type_index(typeid(T)));
+        const auto* service = AcquireServiceImpl(std::type_index(typeid(T)));
         return ServiceHandle<T>(this, const_cast<T*>(static_cast<const T*>(service)));
     }
 
@@ -141,24 +150,35 @@ class Context {
         if (!expected) {
             return Status(StatusCode::kInvalidArgument, "service pointer must not be null");
         }
-        return UnregisterService(std::type_index(typeid(T)), expected);
+        return UnregisterServiceImpl(std::type_index(typeid(T)), expected);
     }
 
+   protected:
+    Context() = default;
+
+    /// Implements service registration for the exact, unqualified service type. The public
+    /// template validates its arguments before calling this function. Allocation and mutex
+    /// exceptions propagate.
+    [[nodiscard]] virtual Status RegisterServiceImpl(std::type_index type,
+                                                     const Service* service) = 0;
+
+    /// Implements acquisition of a service borrow. Returning nullptr represents an unregistered
+    /// type. Mutex exceptions propagate.
+    [[nodiscard]] virtual const Service* AcquireServiceImpl(std::type_index type) const = 0;
+
+    /// Implements release of a previous service borrow. Allocation and mutex exceptions
+    /// propagate.
+    [[nodiscard]] virtual Status ReleaseServiceImpl(std::type_index type,
+                                                    const Service* service) const = 0;
+
+    /// Implements removal of an unborrowed service registration. Allocation and mutex exceptions
+    /// propagate.
+    [[nodiscard]] virtual Status UnregisterServiceImpl(std::type_index type,
+                                                       const Service* expected) = 0;
+
    private:
-    friend class App;
     template <typename>
     friend class ServiceHandle;
-
-    class Impl;
-
-    Context(ServiceRegistry& registry, EventBus& events, const Config& config, Logger& logger);
-
-    [[nodiscard]] Status RegisterService(std::type_index type, const Service* service);
-    [[nodiscard]] const Service* AcquireService(std::type_index type) const;
-    [[nodiscard]] Status ReleaseService(std::type_index type, const Service* service) const;
-    [[nodiscard]] Status UnregisterService(std::type_index type, const Service* expected);
-
-    std::unique_ptr<Impl> impl_;
 };
 
 }  // namespace tos
@@ -168,7 +188,7 @@ tos::Status tos::ServiceHandle<T>::Reset() {
     if (!service_) {
         return tos::Status::Ok();
     }
-    tos::Status result = context_->ReleaseService(std::type_index(typeid(T)), service_);
+    tos::Status result = context_->ReleaseServiceImpl(std::type_index(typeid(T)), service_);
     if (result.ok()) {
         context_ = nullptr;
         service_ = nullptr;

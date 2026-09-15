@@ -8,8 +8,11 @@
 #include "tos/app/context.h"
 #include "tos/app/module.h"
 #include "tos/base/config.h"
+#include "tos/base/executor.h"
 #include "tos/base/logging.h"
+#include "tos/base/scheduler.h"
 #include "tos/base/status.h"
+#include "tos/base/thread_pool.h"
 
 namespace tos {
 
@@ -17,11 +20,15 @@ namespace tos {
 enum class AppState { kCreated, kStarting, kRunning, kStopping, kStopped, kFailed };
 
 /// Configuration used to construct an App.
-/// The Config value is moved into the application; Logger is constructed from log.
+/// The Config value is moved into the application; Logger and the shared ThreadPool are
+/// constructed from log and the thread pool fields respectively.
 struct AppOptions {
     std::string name = "tos";
     Config config;
     LoggerOptions log;
+    /// Zero uses DefaultThreadPoolWorkerCount().
+    std::size_t thread_pool_worker_count = 0;
+    std::size_t thread_pool_queue_capacity = 1024;
 };
 
 /// Owns modules and coordinates their deterministic lifecycle.
@@ -47,14 +54,23 @@ class [[nodiscard]] App {
     /// Loads every module in deterministic topological order.
     [[nodiscard]] Status Start();
 
-    /// Unloads modules in reverse topological order. It is idempotent for stopped or never-started
-    /// applications and continues cleanup after individual callback failures.
+    /// Closes the EventBus, unloads modules in reverse topological order, stops the shared
+    /// scheduler, then drains the shared executor. It is idempotent and also closes both task
+    /// components for never-started applications.
     [[nodiscard]] Status Stop();
 
     [[nodiscard]] AppState state() const noexcept;
     [[nodiscard]] Context& context() noexcept;
     [[nodiscard]] const Config& config() const noexcept;
     [[nodiscard]] Logger& logger() noexcept;
+
+    /// Returns the App-owned shared executor. The reference remains valid while this App is alive
+    /// and supports concurrent submissions, but cannot be used to stop the shared ThreadPool.
+    [[nodiscard]] Executor& executor() noexcept;
+
+    /// Returns the App-owned monotonic scheduler. The reference remains valid while this App is
+    /// alive and supports concurrent scheduling, but cannot be used to stop it.
+    [[nodiscard]] ScheduledExecutor& scheduler() noexcept;
 
    private:
     struct Impl;

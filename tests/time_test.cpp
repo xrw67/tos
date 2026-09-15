@@ -1,12 +1,19 @@
 #include "tos/base/time.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <future>
 #include <gtest/gtest.h>
 #include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
 
 namespace tos {
 namespace {
+
+constexpr Duration Nanos(std::int64_t value) { return Duration::FromNanoseconds(value); }
 
 TEST(DurationTest, ConvertsAndFormatsGoStyleUnits) {
     const Duration duration = Duration::FromNanoseconds(3723400500678LL);
@@ -132,6 +139,57 @@ TEST(TimeTest, MonotonicClockReportsNondecreasingElapsedDuration) {
     const Duration earlier = clock.Elapsed();
     const Duration later = clock.Elapsed();
     EXPECT_GE(later, earlier);
+}
+
+TEST(TimeTest, ManualMonotonicClockAdvancesAndNotifiesSubscribers) {
+    ManualMonotonicClock clock(Nanos(5));
+    const IMonotonicClock& interface = clock;
+    EXPECT_EQ(interface.Elapsed(), Nanos(5));
+    std::atomic<int> notifications{0};
+    auto subscription = clock.Subscribe([&notifications] { ++notifications; });
+    ASSERT_TRUE(subscription);
+    ASSERT_TRUE(clock.Advance(Nanos(10)));
+    EXPECT_EQ(clock.Elapsed(), Nanos(15));
+    EXPECT_EQ(notifications.load(), 1);
+    ASSERT_TRUE(subscription.Reset());
+    ASSERT_TRUE(clock.Advance(Nanos(1)));
+    EXPECT_EQ(notifications.load(), 1);
+    EXPECT_EQ(clock.Advance(Nanos(-1)).code(), StatusCode::kInvalidArgument);
+    EXPECT_THROW(ManualMonotonicClock(Nanos(-1)), std::invalid_argument);
+}
+
+TEST(TimeTest, ManualMonotonicClockSubscriptionWaitsForInFlightNotification) {
+    using namespace std::chrono_literals;
+
+    ManualMonotonicClock clock;
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool entered = false;
+    bool released = false;
+    auto subscription = clock.Subscribe([&] {
+        std::unique_lock<std::mutex> lock(mutex);
+        entered = true;
+        changed.notify_all();
+        changed.wait(lock, [&] { return released; });
+    });
+    ASSERT_TRUE(subscription);
+
+    std::thread advancing([&] { EXPECT_TRUE(clock.Advance(Nanosecond)); });
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        ASSERT_TRUE(changed.wait_for(lock, 1s, [&] { return entered; }));
+    }
+
+    std::future<Status> reset =
+        std::async(std::launch::async, [&] { return subscription.Reset(); });
+    EXPECT_EQ(reset.wait_for(20ms), std::future_status::timeout);
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        released = true;
+    }
+    changed.notify_all();
+    EXPECT_TRUE(reset.get());
+    advancing.join();
 }
 
 }  // namespace

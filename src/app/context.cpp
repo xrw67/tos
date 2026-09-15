@@ -1,49 +1,62 @@
 #include "tos/app/context.h"
 
+#include "context_factory.h"
 #include "service_registry.h"
 
 namespace tos {
 
-class Context::Impl {
-   public:
-    Impl(ServiceRegistry& registry_value, EventBus& events_value, const Config& config_value,
-         Logger& logger_value) noexcept
-        : registry(registry_value),
-          events(events_value),
-          config(config_value),
-          logger(logger_value) {}
+namespace {
 
-    ServiceRegistry& registry;
-    EventBus& events;
-    const Config& config;
-    Logger& logger;
+class AppContext final : public Context {
+   public:
+    AppContext(ServiceRegistry& registry_value, EventBus& events_value, Executor& executor_value,
+               ScheduledExecutor& scheduler_value, const Config& config_value,
+               Logger& logger_value) noexcept
+        : registry_(registry_value),
+          events_(events_value),
+          executor_(executor_value),
+          scheduler_(scheduler_value),
+          config_(config_value),
+          logger_(logger_value) {}
+
+    const Config& config() const noexcept override { return config_; }
+    Logger& logger() noexcept override { return logger_; }
+    EventBus& events() noexcept override { return events_; }
+    Executor& executor() noexcept override { return executor_; }
+    ScheduledExecutor& scheduler() noexcept override { return scheduler_; }
+
+   protected:
+    Status RegisterServiceImpl(std::type_index type, const Service* service) override {
+        return registry_.Register(type, service);
+    }
+
+    const Service* AcquireServiceImpl(std::type_index type) const override {
+        return registry_.Acquire(type);
+    }
+
+    Status ReleaseServiceImpl(std::type_index type, const Service* service) const override {
+        return registry_.Release(type, service);
+    }
+
+    Status UnregisterServiceImpl(std::type_index type, const Service* expected) override {
+        return registry_.Unregister(type, expected);
+    }
+
+   private:
+    ServiceRegistry& registry_;
+    EventBus& events_;
+    Executor& executor_;
+    ScheduledExecutor& scheduler_;
+    const Config& config_;
+    Logger& logger_;
 };
 
-Context::Context(ServiceRegistry& registry, EventBus& events, const Config& config, Logger& logger)
-    : impl_(std::make_unique<Impl>(registry, events, config, logger)) {}
+}  // namespace
 
-Context::~Context() noexcept = default;
-
-const Config& Context::config() const noexcept { return impl_->config; }
-
-Logger& Context::logger() noexcept { return impl_->logger; }
-
-EventBus& Context::events() noexcept { return impl_->events; }
-
-Status Context::RegisterService(std::type_index type, const Service* service) {
-    return impl_->registry.Register(type, service);
-}
-
-const Service* Context::AcquireService(std::type_index type) const {
-    return impl_->registry.Acquire(type);
-}
-
-Status Context::ReleaseService(std::type_index type, const Service* service) const {
-    return impl_->registry.Release(type, service);
-}
-
-Status Context::UnregisterService(std::type_index type, const Service* expected) {
-    return impl_->registry.Unregister(type, expected);
+std::unique_ptr<Context> CreateAppContext(ServiceRegistry& registry, EventBus& events,
+                                          Executor& executor, ScheduledExecutor& scheduler,
+                                          const Config& config, Logger& logger) {
+    return std::make_unique<AppContext>(registry, events, executor, scheduler, config, logger);
 }
 
 }  // namespace tos

@@ -59,6 +59,10 @@ int main() {
         !application.AddModule(std::make_unique<GreetingModule>()) || !application.Start()) {
         return 1;
     }
-    std::cout << "application example ready\n";
+    auto submitted = application.executor().Submit([] { return "application example ready"; });
+    if (!submitted) {
+        return 1;
+    }
+    std::cout << std::move(submitted).value().get() << '\n';
     return application.Stop() ? 0 : 1;
 }

@@ -1,4 +1,6 @@
 #include <atomic>
+#include <chrono>
+#include <future>
 #include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
@@ -14,6 +16,11 @@
 #include "tos/app/service.h"
 
 namespace {
+
+using namespace std::chrono_literals;
+
+static_assert(std::is_abstract_v<tos::Context>);
+static_assert(std::has_virtual_destructor_v<tos::Context>);
 
 struct ModuleSpec {
     std::string name;
@@ -66,6 +73,57 @@ class TestModule final : public tos::Module {
 
    private:
     ModuleSpec spec_;
+};
+
+class ExecutorUnloadModule final : public tos::Module {
+   public:
+    explicit ExecutorUnloadModule(std::atomic<bool>& task_finished)
+        : task_finished_(task_finished) {}
+
+    std::string Name() const override { return "executor-unload"; }
+    std::vector<std::string> Dependencies() const override { return {}; }
+    tos::Status OnLoad(tos::Context&) override { return tos::Status::Ok(); }
+    tos::Status OnUnload(tos::Context& context) override {
+        auto submitted = context.executor().Submit([this] { task_finished_.store(true); });
+        if (!submitted) {
+            return std::move(submitted).status();
+        }
+        return tos::Status::Ok();
+    }
+
+   private:
+    std::atomic<bool>& task_finished_;
+};
+
+class SchedulerUnloadModule final : public tos::Module {
+   public:
+    explicit SchedulerUnloadModule(std::atomic<bool>& task_finished)
+        : task_finished_(task_finished) {}
+
+    std::string Name() const override { return "scheduler-unload"; }
+    std::vector<std::string> Dependencies() const override { return {}; }
+    tos::Status OnLoad(tos::Context&) override { return tos::Status::Ok(); }
+    tos::Status OnUnload(tos::Context& context) override {
+        auto completed = std::make_shared<std::promise<void>>();
+        std::future<void> future = completed->get_future();
+        auto scheduled = context.scheduler().ScheduleAfter(tos::Duration(), [this, completed] {
+            task_finished_.store(true);
+            completed->set_value();
+        });
+        if (!scheduled) {
+            return std::move(scheduled).status();
+        }
+        task_ = std::move(scheduled).value();
+        if (future.wait_for(1s) != std::future_status::ready) {
+            return {tos::StatusCode::kTimeout, "scheduled unload task did not finish"};
+        }
+        future.get();
+        return tos::Status::Ok();
+    }
+
+   private:
+    std::atomic<bool>& task_finished_;
+    tos::ScheduledTask task_;
 };
 
 tos::AppOptions QuietOptions() {
@@ -173,6 +231,8 @@ TEST(AppTest, ContextServicesAndInfrastructure) {
               tos::StatusCode::kInvalidArgument);
     EXPECT_EQ(&context.config(), &app.config());
     EXPECT_EQ(&context.logger(), &app.logger());
+    EXPECT_EQ(&context.executor(), &app.executor());
+    EXPECT_EQ(&context.scheduler(), &app.scheduler());
 }
 
 TEST(AppTest, ContextProvidesConfigAndLoggerDirectly) {
@@ -202,6 +262,47 @@ TEST(AppTest, ContextProvidesEventBusAndStopClosesIt) {
     EXPECT_EQ(app.context().events().PublishSync(AppEvent{8}).code(),
               tos::StatusCode::kFailedPrecondition);
     EXPECT_TRUE(subscription.Reset());
+}
+
+TEST(AppTest, SharedExecutorIsAvailableBeforeStartAndDrainsAfterModuleUnload) {
+    tos::AppOptions options = QuietOptions();
+    options.thread_pool_worker_count = 1;
+    options.thread_pool_queue_capacity = 4;
+    tos::App app(std::move(options));
+    auto before_start = app.executor().Submit([] { return 17; });
+    ASSERT_TRUE(before_start);
+    EXPECT_EQ(std::move(before_start).value().get(), 17);
+
+    std::atomic<bool> task_finished{false};
+    ASSERT_TRUE(app.AddModule(std::make_unique<ExecutorUnloadModule>(task_finished)));
+    ASSERT_TRUE(app.Start());
+    ASSERT_TRUE(app.Stop());
+    EXPECT_TRUE(task_finished.load());
+    EXPECT_EQ(app.executor().Submit([] {}).status().code(), tos::StatusCode::kFailedPrecondition);
+}
+
+TEST(AppTest, StoppingNeverStartedAppClosesSharedExecutor) {
+    tos::App app(QuietOptions());
+    ASSERT_TRUE(app.Stop());
+    EXPECT_EQ(app.state(), tos::AppState::kStopped);
+    EXPECT_EQ(app.context().executor().Submit([] {}).status().code(),
+              tos::StatusCode::kFailedPrecondition);
+    EXPECT_EQ(app.context().scheduler().ScheduleAfter(tos::Duration(), [] {}).status().code(),
+              tos::StatusCode::kFailedPrecondition);
+}
+
+TEST(AppTest, SharedSchedulerRunsDuringUnloadAndClosesBeforeExecutor) {
+    tos::AppOptions options = QuietOptions();
+    options.thread_pool_worker_count = 1;
+    options.thread_pool_queue_capacity = 4;
+    tos::App app(std::move(options));
+    std::atomic<bool> task_finished{false};
+    ASSERT_TRUE(app.AddModule(std::make_unique<SchedulerUnloadModule>(task_finished)));
+    ASSERT_TRUE(app.Start());
+    ASSERT_TRUE(app.Stop());
+    EXPECT_TRUE(task_finished.load());
+    EXPECT_EQ(app.scheduler().ScheduleAfter(tos::Duration(), [] {}).status().code(),
+              tos::StatusCode::kFailedPrecondition);
 }
 
 TEST(AppTest, ServiceHandleIsMoveOnlyAndReleasesOnScopeExit) {

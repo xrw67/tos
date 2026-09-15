@@ -15,6 +15,8 @@ add_executable(tos_unit_tests
     filesystem_test.cpp
     crypto_test.cpp
     logging_test.cpp
+    scheduler_test.cpp
+    thread_pool_test.cpp
     application_test.cpp
     event_bus_test.cpp
 )

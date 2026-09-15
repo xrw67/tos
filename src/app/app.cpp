@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 
+#include "context_factory.h"
 #include "module_registry.h"
 #include "service_registry.h"
 
@@ -15,14 +16,19 @@ struct App::Impl {
         : name(std::move(options.name)),
           config(std::move(options.config)),
           logger(std::move(options.log)),
-          context(service_registry, event_bus, config, logger) {}
+          executor(options.thread_pool_worker_count, options.thread_pool_queue_capacity),
+          scheduler(executor),
+          context(
+              CreateAppContext(service_registry, event_bus, executor, scheduler, config, logger)) {}
 
     std::string name;
     Config config;
     Logger logger;
     ServiceRegistry service_registry;
     EventBus event_bus;
-    Context context;
+    ThreadPool executor;
+    Scheduler scheduler;
+    std::unique_ptr<Context> context;
     ModuleRegistry module_registry;
     mutable std::recursive_mutex mutex;
     AppState state = AppState::kCreated;
@@ -90,8 +96,9 @@ Status App::Start() {
         impl_->callback_thread = std::this_thread::get_id();
         Status result;
         try {
-            result = phase == "OnLoad" ? impl_->module_registry.Get(index).OnLoad(impl_->context)
-                                       : impl_->module_registry.Get(index).OnUnload(impl_->context);
+            result = phase == "OnLoad"
+                         ? impl_->module_registry.Get(index).OnLoad(*impl_->context)
+                         : impl_->module_registry.Get(index).OnUnload(*impl_->context);
         } catch (const std::exception&) {
             result = CallbackException(impl_->module_registry.Name(index), phase);
         } catch (...) {
@@ -128,7 +135,7 @@ Status App::Stop() {
         return InvalidState("Stop");
     }
     std::unique_lock<std::recursive_mutex> lock(impl_->mutex);
-    if (impl_->state == AppState::kCreated || impl_->state == AppState::kStopped) {
+    if (impl_->state == AppState::kStopped) {
         return Status::Ok();
     }
     if (impl_->state == AppState::kStopping || impl_->state == AppState::kStarting) {
@@ -146,7 +153,7 @@ Status App::Stop() {
         impl_->callback_thread = std::this_thread::get_id();
         Status result;
         try {
-            result = impl_->module_registry.Get(index).OnUnload(impl_->context);
+            result = impl_->module_registry.Get(index).OnUnload(*impl_->context);
         } catch (const std::exception&) {
             result = CallbackException(impl_->module_registry.Name(index), phase);
         } catch (...) {
@@ -161,6 +168,10 @@ Status App::Stop() {
         failure = FirstFailure(std::move(failure), invoke(*iterator, "OnUnload"));
     }
     impl_->module_registry.ClearLoaded();
+    lock.unlock();
+    failure = FirstFailure(std::move(failure), impl_->scheduler.Shutdown());
+    failure = FirstFailure(std::move(failure), impl_->executor.Shutdown());
+    lock.lock();
     impl_->state = failure.ok() ? AppState::kStopped : AppState::kFailed;
     return failure;
 }
@@ -173,8 +184,10 @@ AppState App::state() const noexcept {
     return impl_->state;
 }
 
-Context& App::context() noexcept { return impl_->context; }
+Context& App::context() noexcept { return *impl_->context; }
 const Config& App::config() const noexcept { return impl_->config; }
 Logger& App::logger() noexcept { return impl_->logger; }
+Executor& App::executor() noexcept { return impl_->executor; }
+ScheduledExecutor& App::scheduler() noexcept { return impl_->scheduler; }
 
 }  // namespace tos

@@ -17,7 +17,7 @@
 | 错误与结果 | 结构化 `Error`（域、原生码、根因）、`Result<T>`/`Result<void>`、Abseil 兼容 | 部分完成：保留 tos 自身的 move-only `Status`/`Result<T>`，并提供可操作的错误码分类与只读谓词；不移植 Pallas 错误模型。仍需补充传播辅助工具，结构化 payload 留待有原生错误信息需求时实现 |
 | Core | `App`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 已完成（`tosapp`/`tos::app`）；Runtime 及调度能力留待后续 |
 | 通信 | 非拥有的类型化 `ServiceRegistry`、同步 `EventBus` 和 RAII 订阅 | 已完成：`Context` 支持显式服务指针注册、查询和注销，以及线程安全的同步 EventBus；异步 FIFO 与背压不在当前范围内 |
-| Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 未开始 |
+| Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 已完成：Executor、有界 ThreadPool、future、协作取消、统计、幂等关闭和单调 Scheduler 已实现 |
 | 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
 | 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 部分完成：同步线程安全 Logger、控制台、按大小滚动 JSON Lines 文件、强类型字段与 flush/shutdown 已实现；异步队列和诊断上下文未实现 |
 | Foundation 扩展 | 内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 部分完成：`tos::span` 及基于 OpenSSL 的摘要、Base64、RSA 和 Ed25519 已实现；内存资源、二进制 codec 与 Protobuf 未实现 |
@@ -64,15 +64,15 @@
 
 ### P2：任务、生命周期与模块通信
 
-- [ ] `P2-01` 实现 `Executor`、有界 `ThreadPool`、future 结果、取消令牌、统计和幂等关闭。
-  - 验收：饱和拒绝、任务异常、任务内 shutdown、取消与析构竞态均有测试；不为每个任务创建线程。
-- [ ] `P2-02` 实现基于单调时钟的 `Scheduler`，支持一次性/周期性任务和取消。
-  - 验收：不为每个定时器建线程；覆盖漂移、长延迟、取消与最后一次执行竞争。
+- [x] `P2-01` 实现 `Executor`、有界 `ThreadPool`、future 结果、取消令牌、统计和幂等关闭。
+  - 验收：饱和拒绝、任务异常、任务内 shutdown、取消与析构竞态均有测试；固定工作线程不为每个任务创建线程。
+- [x] `P2-02` 实现基于单调时钟的 `Scheduler`，支持一次性/周期性任务和取消。
+  - 验收：单计时线程配合借用 Executor；覆盖固定频率跳 tick、长延迟关闭、取消与最后一次执行竞争。
 - [x] `P2-03` 实现非拥有的 `ServiceRegistry`：`Context` 提供类型化 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过 RAII 归还借用，并在注销成功后销毁服务。Config/Logger 由 Context 直接提供，不注册为 Service。
   - 验收：重复、空指针、缺失、期望指针不匹配、未归还借用的注销拒绝和并发注册表访问均有测试；Config/Logger 由 Context 直接提供，注册表不删除或保活服务对象。
 - [x] `P2-04` 实现同步 `EventBus`：类型化调用方线程发布、RAII subscription 和关闭。
   - 验收：订阅、发布、reset 和 shutdown 并发安全；无订阅者和关闭状态返回明确 Status。异步 FIFO、事件副本与背压不在当前范围内。
-- [x] `P2-05` 实现模块化 `App` 框架：`tosapp`/`tos::app` 提供 `App`、`Module`、`Context` 和 App 状态机、依赖图校验、确定性拓扑排序、OnLoad 加载回滚及 OnUnload 反向清理；Executor 和 Scheduler 等后续能力仍未实现。
+- [x] `P2-05` 实现模块化 `App` 框架：`tosapp`/`tos::app` 提供 `App`、`Module`、`Context` 和 App 状态机、依赖图校验、确定性拓扑排序、OnLoad 加载回滚及 OnUnload 反向清理；App 私有共享 Executor 和 Scheduler 由 App/Context 提供。
   - 验收：覆盖重复名、缺失依赖、环、迟注册、部分启动失败、重复 Stop、并发控制器调用和析构清理。
 
 ### P3：补齐通用 Foundation 与可观测性

@@ -1,14 +1,21 @@
 #ifndef TOS_BASE_TIME_H_
 #define TOS_BASE_TIME_H_
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <limits>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "tos/base/result.h"
 
@@ -665,22 +672,228 @@ class ManualClock final : public IClock {
     std::atomic<std::int64_t> nanoseconds_;
 };
 
+/// Move-only RAII subscription to monotonic clock changes.
+///
+/// Reset waits for notifications running on other threads. Reset from the callback itself does
+/// not wait for that invocation. The subscription may outlive its clock; Reset then succeeds
+/// without invoking a destroyed clock. Concurrent operations on the same subscription require
+/// caller synchronization. Callback registration may allocate; Reset and destruction do not
+/// throw.
+class MonotonicClockSubscription final {
+   public:
+    MonotonicClockSubscription() noexcept = default;
+    MonotonicClockSubscription(const MonotonicClockSubscription&) = delete;
+    MonotonicClockSubscription& operator=(const MonotonicClockSubscription&) = delete;
+
+    MonotonicClockSubscription(MonotonicClockSubscription&& other) noexcept
+        : reset_(std::move(other.reset_)) {}
+
+    MonotonicClockSubscription& operator=(MonotonicClockSubscription&& other) noexcept {
+        if (this != &other && ResetNoexcept()) {
+            reset_ = std::move(other.reset_);
+        }
+        return *this;
+    }
+
+    ~MonotonicClockSubscription() noexcept { static_cast<void>(ResetNoexcept()); }
+
+    /// Stops future change notifications and waits for notifications running on other threads.
+    /// Repeated calls succeed and do not throw.
+    [[nodiscard]] Status Reset() noexcept {
+        if (!reset_) {
+            return Status::Ok();
+        }
+        std::function<void()> reset = std::move(reset_);
+        reset();
+        return Status::Ok();
+    }
+
+    /// Returns true while this object owns an active subscription.
+    [[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(reset_); }
+
+   private:
+    friend class ManualMonotonicClock;
+
+    explicit MonotonicClockSubscription(std::function<void()> reset) noexcept
+        : reset_(std::move(reset)) {}
+
+    bool ResetNoexcept() noexcept {
+        try {
+            return Reset().ok();
+        } catch (...) {
+            return false;
+        }
+    }
+
+    std::function<void()> reset_;
+};
+
+/// Source of elapsed time which never moves backwards. Elapsed returns a duration relative to the
+/// source's private origin and has no UTC meaning. Subscribe registers a callback for explicit
+/// clock changes; system clocks return an empty subscription because natural time passage does not
+/// produce notifications. Implementations must support concurrent Elapsed and Subscribe calls.
+class IMonotonicClock {
+   public:
+    using ChangeHandler = std::function<void()>;
+
+    virtual ~IMonotonicClock() = default;
+    [[nodiscard]] virtual Duration Elapsed() const noexcept = 0;
+    [[nodiscard]] virtual MonotonicClockSubscription Subscribe(ChangeHandler handler) = 0;
+};
+
 /// Measures elapsed time with std::chrono::steady_clock. The origin is private and has no UTC
 /// meaning. It owns no resources, is safe to read concurrently after construction, and never
 /// throws.
-class MonotonicClock final {
+class MonotonicClock final : public IMonotonicClock {
    public:
     MonotonicClock() noexcept : started_(std::chrono::steady_clock::now()) {}
 
     /// Returns a nondecreasing elapsed duration while the platform steady clock remains available.
-    Duration Elapsed() const noexcept {
+    Duration Elapsed() const noexcept override {
         return Duration::FromNanoseconds(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                              std::chrono::steady_clock::now() - started_)
                                              .count());
     }
 
+    /// System monotonic time advances naturally, so it does not emit explicit change callbacks.
+    [[nodiscard]] MonotonicClockSubscription Subscribe(ChangeHandler) override { return {}; }
+
    private:
     std::chrono::steady_clock::time_point started_;
+};
+
+/// Deterministic monotonic clock for timed components and tests.
+///
+/// The initial elapsed duration and every advance must be nonnegative. Advance atomically changes
+/// elapsed time then notifies current subscribers outside internal locks; notification exceptions
+/// are suppressed. The clock and its subscriptions may be used concurrently.
+class ManualMonotonicClock final : public IMonotonicClock {
+   public:
+    explicit ManualMonotonicClock(Duration initial = Duration())
+        : state_(std::make_shared<State>(ValidateInitial(initial))) {}
+
+    [[nodiscard]] Duration Elapsed() const noexcept override {
+        std::lock_guard<std::mutex> lock(state_->mutex);
+        return Duration::FromNanoseconds(state_->nanoseconds);
+    }
+
+    /// Advances elapsed time and wakes all subscribers. Negative durations and values outside the
+    /// Duration range return kInvalidArgument; allocation and callback exceptions are suppressed.
+    [[nodiscard]] Status Advance(Duration duration) {
+        if (duration < Duration()) {
+            return Status(StatusCode::kInvalidArgument,
+                          "manual monotonic clock cannot move backwards");
+        }
+
+        std::vector<std::shared_ptr<Observer>> observers;
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            const std::int64_t increment = duration.Nanoseconds();
+            if (state_->nanoseconds > std::numeric_limits<std::int64_t>::max() - increment) {
+                return Status(StatusCode::kInvalidArgument,
+                              "manual monotonic clock advance is outside the supported range");
+            }
+            state_->nanoseconds += increment;
+            observers = state_->observers;
+        }
+
+        for (const std::shared_ptr<Observer>& observer : observers) {
+            InvokeObserver(observer);
+        }
+        return Status::Ok();
+    }
+
+    /// Registers handler for future Advance calls. Empty handlers create an inert subscription.
+    /// Handler and subscription allocation exceptions propagate.
+    [[nodiscard]] MonotonicClockSubscription Subscribe(ChangeHandler handler) override {
+        if (!handler) {
+            return {};
+        }
+        const auto observer = std::make_shared<Observer>(std::move(handler));
+        {
+            std::lock_guard<std::mutex> lock(state_->mutex);
+            state_->observers.push_back(observer);
+        }
+        return MonotonicClockSubscription(
+            [state = std::weak_ptr<State>(state_), observer] { ResetObserver(state, observer); });
+    }
+
+   private:
+    class Observer {
+       public:
+        explicit Observer(ChangeHandler callback_value) : callback(std::move(callback_value)) {}
+
+        ChangeHandler callback;
+        std::mutex mutex;
+        std::condition_variable idle;
+        std::size_t in_flight = 0;
+        bool active = true;
+    };
+
+    class State {
+       public:
+        explicit State(std::int64_t initial_nanoseconds) : nanoseconds(initial_nanoseconds) {}
+
+        std::mutex mutex;
+        std::int64_t nanoseconds;
+        std::vector<std::shared_ptr<Observer>> observers;
+    };
+
+    static std::int64_t ValidateInitial(Duration initial) {
+        if (initial < Duration()) {
+            throw std::invalid_argument(
+                "manual monotonic clock initial duration must be nonnegative");
+        }
+        return initial.Nanoseconds();
+    }
+
+    static bool IsCurrentObserver(const void* observer) {
+        return std::find(current_observers_.begin(), current_observers_.end(), observer) !=
+               current_observers_.end();
+    }
+
+    static void InvokeObserver(const std::shared_ptr<Observer>& observer) noexcept {
+        {
+            std::lock_guard<std::mutex> lock(observer->mutex);
+            if (!observer->active) {
+                return;
+            }
+            ++observer->in_flight;
+        }
+
+        current_observers_.push_back(observer.get());
+        try {
+            observer->callback();
+        } catch (...) {
+        }
+        current_observers_.pop_back();
+
+        std::lock_guard<std::mutex> lock(observer->mutex);
+        --observer->in_flight;
+        if (observer->in_flight == 0) {
+            observer->idle.notify_all();
+        }
+    }
+
+    static void ResetObserver(const std::weak_ptr<State>& state,
+                              const std::shared_ptr<Observer>& observer) noexcept {
+        if (const std::shared_ptr<State> locked_state = state.lock()) {
+            std::lock_guard<std::mutex> lock(locked_state->mutex);
+            std::vector<std::shared_ptr<Observer>>& observers = locked_state->observers;
+            observers.erase(std::remove(observers.begin(), observers.end(), observer),
+                            observers.end());
+        }
+
+        std::unique_lock<std::mutex> lock(observer->mutex);
+        observer->active = false;
+        if (!IsCurrentObserver(observer.get())) {
+            observer->idle.wait(lock, [&] { return observer->in_flight == 0; });
+        }
+    }
+
+    inline static thread_local std::vector<const void*> current_observers_;
+
+    std::shared_ptr<State> state_;
 };
 
 }  // namespace tos

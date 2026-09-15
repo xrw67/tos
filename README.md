@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process、Logger 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动时钟、日志字段、轮转与并发写入、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -74,7 +74,32 @@ target_link_libraries(your_app PRIVATE tos::app)
 
 `tos::App` 独占 `std::unique_ptr<tos::Module>` 模块，并按依赖 DAG 的确定性拓扑顺序执行 `OnLoad`，停止时反向执行 `OnUnload`。加载失败会自动回滚并进入不可重启的 `kFailed` 状态；停止会继续清理全部模块并报告首个错误。App 的 `Start`、`Stop` 和状态查询可并发调用，但回调始终串行，同一 App 不支持生命周期回调重入。
 
-`Context` 是由 `App` 创建并通过 `App::context()` 提供给调用方和模块的精确 C++ 类型服务容器。`App` 管理内部 `ServiceRegistry` 和 `EventBus` 的生命周期，`Context::Impl` 只保留对它们的引用，因此 Context 不可独立构造或在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config` 和 `Logger` 由 App 直接持有，模块通过 `context.config()` 获取只读配置，通过 `context.logger()` 获取线程安全 Logger；二者不属于 ServiceRegistry。`context.events()` 返回同步 EventBus：`PublishSync` 只在调用方线程内、按订阅注册顺序调用同类型处理器，事件参数只在调用期间有效；无订阅者返回 `kNotFound`，关闭后订阅或发布返回 `kFailedPrecondition`。`Subscription` 离开作用域或调用 `Reset()` 时取消订阅，并等待其他线程中的在途回调完成；处理器必须同步其共享状态，处理器异常会返回给同步发布者。App 停止时先关闭 EventBus 并等待在途回调，再反向卸载模块。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+`Context` 是抽象接口，由 `App` 创建私有实现并通过 `App::context()` 提供给调用方和模块；其他宿主也可实现该接口。`App` 管理内部 `ServiceRegistry`、`EventBus`、共享 `ThreadPool` 和共享 `Scheduler` 的生命周期，因此从 `App` 取得的 Context 不可在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config`、`Logger`、`Executor` 和 `ScheduledExecutor` 由 App 直接持有，模块通过 `context.config()` 获取只读配置、通过 `context.logger()` 获取线程安全 Logger、通过 `context.executor()` 获取共享执行器、通过 `context.scheduler()` 获取共享调度器；四者不属于 ServiceRegistry。`App::executor()` 与 `App::scheduler()` 返回相同的非拥有接口，不提供关闭 App 共享任务组件的权限。`context.events()` 返回同步 EventBus：`PublishSync` 只在调用方线程内、按订阅注册顺序调用同类型处理器，事件参数只在调用期间有效；无订阅者返回 `kNotFound`，关闭后订阅或发布返回 `kFailedPrecondition`。`Subscription` 离开作用域或调用 `Reset()` 时取消订阅，并等待其他线程中的在途回调完成；处理器必须同步其共享状态，处理器异常会返回给同步发布者。App 停止时先关闭 EventBus 并等待在途回调，再反向卸载模块、关闭共享 Scheduler，最后关闭提交并排空共享线程池；`OnUnload` 期间仍可提交或安排任务。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+
+### 任务执行
+
+`<tos/base/executor.h>` 定义 move-only `Task`、`Executor`、`CancellationToken` 和 `CancellationSource`；`<tos/base/thread_pool.h>` 提供固定工作线程和有界 FIFO 队列的 `ThreadPool`。`ThreadPool(worker_count, queue_capacity)` 的线程数默认使用 `std::thread::hardware_concurrency()`，系统不能报告时回退为 1；显式传入零线程数也使用该默认值，队列容量默认 1024。零队列容量构造参数抛出 `std::invalid_argument`。`Post` 接受 move-only Task，队列满返回 `kResourceExhausted`，关闭后返回 `kFailedPrecondition`。`Submit` 返回 `Result<std::future<T>>`，因此入队失败使用 `Status`，而任务内部异常由 future 原样报告。
+
+`SubmitCancellable` 返回 `Result<SubmittedTask<T>>`，其中的 move-only `CancellationSource` 可通过 `Cancel()` 发出幂等、线程安全的协作式请求。它不会中断线程或移除队列工作；任务必须检查传入的 `CancellationToken`，并容忍取消与任务开始执行竞争。`ThreadPool::Shutdown()` 拒绝新任务并完成此前已接收的任务，重复调用成功；从池内任务调用时不会等待当前工作线程。`stats()` 返回同步队列和累计接受、拒绝、完成计数。线程池析构会尽力排空关闭，直接拥有 ThreadPool 的调用方应在析构前确保没有其他线程继续访问该对象。
+
+`<tos/base/scheduler.h>` 提供 `Scheduler` 和只含调度能力的 `ScheduledExecutor`。Scheduler 拥有一个计时线程、借用一个必须更长寿的 `Executor`，到期后将任务投递给该 Executor；它不拥有或关闭 Executor。`ScheduleAfter(Duration, task)` 调度一次，`ScheduleEvery(Duration, task)` 首次在一个完整 interval 后执行，并按固定单调频率重排；如果已错过多个 deadline，会跳过过期 tick 而不补跑。负延迟、非正周期和空任务返回 `kInvalidArgument`，关闭后返回 `kFailedPrecondition`。到期但 Executor 拒绝任务时，`SetErrorHandler(std::function<void(Status)>)` 在 Scheduler 的计时线程上接收失败状态；处理器异常被抑制，任务自身异常仍由 Executor 的策略处理。
+
+调度调用返回 move-only `ScheduledTask`，调用方必须保留它以维持未来触发；句柄析构或 `Cancel()` 会取消未被选中的任务。取消和定时选择可竞争，因此已经选中或投递的最后一次回调仍可能执行。`Shutdown()` 取消未触发定时器并停止计时线程，但不停止已投递任务或借用的 Executor。`Scheduler(Executor&, IMonotonicClock&)` 可接收可注入单调时钟；`ManualMonotonicClock` 的 `Advance()` 会自动唤醒订阅它的 Scheduler，适合确定性测试。
+
+```cpp
+tos::ThreadPool pool;
+tos::Scheduler scheduler(pool);
+auto scheduled = scheduler.ScheduleAfter(tos::Second, [] { /* run once */ });
+if (!scheduled) return 1;
+// Keep scheduled alive until the timer should remain active.
+```
+
+```cpp
+tos::App app;
+auto submitted = app.executor().Submit([] { return 42; });
+if (!submitted) return 1;
+const int answer = std::move(submitted).value().get();
+```
 
 ```cpp
 tos::App app;
@@ -83,7 +108,7 @@ if (!app.Start()) return 1;
 app.Stop();
 ```
 
-0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event_bus.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger 不再通过 `ConfigService`/`LoggerService` 获取，改用 `Context::config()` 和 `Context::logger()`。
+0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event_bus.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
 
 ### 自动化验证
 
@@ -511,7 +536,7 @@ if (deadline) {
 }
 ```
 
-`IClock` 允许依赖注入；`SystemClock` 读取系统 UTC 时钟，可能随系统校时倒退；`ManualClock` 用于确定性的测试或调度，支持线程安全的 `Now()`、`Set()` 和有溢出检查的 `Advance()`；`MonotonicClock::Elapsed()` 基于 `std::chrono::steady_clock` 测量单调耗时，不能转换为 UTC。本实现没有 Go `Time` 的 location 或隐藏单调读数，格式化和解析不读取进程时区。
+`IClock` 允许依赖注入；`SystemClock` 读取系统 UTC 时钟，可能随系统校时倒退；`ManualClock` 用于确定性 UTC 测试，支持线程安全的 `Now()`、`Set()` 和有溢出检查的 `Advance()`。`IMonotonicClock` 为耗时和调度提供相对单调时间；`MonotonicClock::Elapsed()` 基于 `std::chrono::steady_clock`，不能转换为 UTC，`ManualMonotonicClock` 只允许非负推进，并在 `Advance()` 后通知订阅者。订阅句柄析构或 `Reset()` 会取消后续通知并等待其他线程的在途通知，回调异常被抑制。本实现没有 Go `Time` 的 location 或隐藏单调读数，格式化和解析不读取进程时区。
 
 所有值类型均不持有外部资源，复制和并发只读安全。`SystemClock`、`ManualClock::Now` 和 `ManualClock::Set` 不抛异常；字符串格式化的分配异常以及构造错误 `Status` 的分配异常会直接传播。
 
@@ -603,7 +628,7 @@ if (!source || !port || source.value() != "file" || port.value() != 443) {
 
 以下能力按实际应用需求逐步加入，不作为首版交付条件：
 
-- 并发与调度：线程池、异步任务、定时器、取消和超时控制。
+- 并发与调度：基于单调时钟的定时器、超时控制。
 - 网络通信：HTTP 客户端及服务端，按需扩展 TCP、UDP。
 - 数据访问：SQLite 等轻量存储及序列化适配。
 - 工程模板：生成最小应用工程及常见场景示例。
