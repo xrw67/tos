@@ -26,6 +26,24 @@ add_executable(tos_unit_tests
     event_bus_test.cpp
 )
 
+# Each public base header must compile without relying on another header being included first.
+file(GLOB TOS_BASE_PUBLIC_HEADERS CONFIGURE_DEPENDS
+     RELATIVE "${PROJECT_SOURCE_DIR}/include/tos/base"
+     "${PROJECT_SOURCE_DIR}/include/tos/base/*.h")
+
+set(tos_public_header_targets)
+set(tos_public_header_directory "${CMAKE_CURRENT_BINARY_DIR}/public_headers")
+file(MAKE_DIRECTORY "${tos_public_header_directory}")
+foreach(header IN LISTS TOS_BASE_PUBLIC_HEADERS)
+    get_filename_component(header_name "${header}" NAME_WE)
+    set(header_source "${tos_public_header_directory}/${header_name}.cpp")
+    file(WRITE "${header_source}" "#include <tos/base/${header}>\nint main() { return 0; }\n")
+    add_library(tos_public_header_${header_name} OBJECT EXCLUDE_FROM_ALL "${header_source}")
+    target_link_libraries(tos_public_header_${header_name} PRIVATE tos::base)
+    list(APPEND tos_public_header_targets tos_public_header_${header_name})
+endforeach()
+add_custom_target(tos_public_headers ALL DEPENDS ${tos_public_header_targets})
+
 add_library(tos_dynamic_library_test_module SHARED dynamic_library_test_module.cpp)
 
 add_executable(tos_process_test_helper process_test_helper.cpp)

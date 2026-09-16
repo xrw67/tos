@@ -1,6 +1,77 @@
 #ifndef TOS_BASE_MICROS_H_
 #define TOS_BASE_MICROS_H_
 
+#include <cassert>
+#include <cstddef>
+#include <cstdlib>
+
+// Feature-test wrappers may be overridden by build configuration when needed.
+#ifndef TOS_HAVE_ATTRIBUTE
+#if defined(__has_attribute)
+#define TOS_HAVE_ATTRIBUTE(attribute) __has_attribute(attribute)
+#else
+#define TOS_HAVE_ATTRIBUTE(attribute) 0
+#endif
+#endif
+
+#ifndef TOS_HAVE_BUILTIN
+#if defined(__has_builtin)
+#define TOS_HAVE_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#define TOS_HAVE_BUILTIN(builtin) 0
+#endif
+#endif
+
+// TOS_BLOCK_TAIL_CALL_OPTIMIZATION
+#if defined(__pnacl__)
+#define TOS_BLOCK_TAIL_CALL_OPTIMIZATION() \
+    if (volatile int x = 0) {              \
+        (void)x;                           \
+    }
+#elif defined(__clang__) || defined(__GNUC__)
+#define TOS_BLOCK_TAIL_CALL_OPTIMIZATION() __asm__ __volatile__("")
+#elif defined(_MSC_VER)
+#include <intrin.h>
+#define TOS_BLOCK_TAIL_CALL_OPTIMIZATION() __nop()
+#else
+#define TOS_BLOCK_TAIL_CALL_OPTIMIZATION() \
+    if (volatile int x = 0) {              \
+        (void)x;                           \
+    }
+#endif
+
+// Cache-line alignment is implementation-defined; verify its effect before using it in hot code.
+#if defined(__GNUC__)
+#if defined(__i386__) || defined(__x86_64__) || defined(__aarch64__)
+#define TOS_CACHELINE_SIZE 64
+#elif defined(__powerpc64__)
+#define TOS_CACHELINE_SIZE 128
+#elif defined(__ARM_ARCH_5T__)
+#define TOS_CACHELINE_SIZE 32
+#elif defined(__ARM_ARCH_7A__)
+#define TOS_CACHELINE_SIZE 64
+#endif
+#ifndef TOS_CACHELINE_SIZE
+#define TOS_CACHELINE_SIZE 64
+#endif
+#define TOS_CACHELINE_ALIGNED __attribute__((aligned(TOS_CACHELINE_SIZE)))
+#elif defined(_MSC_VER)
+#define TOS_CACHELINE_SIZE 64
+#define TOS_CACHELINE_ALIGNED __declspec(align(TOS_CACHELINE_SIZE))
+#else
+#define TOS_CACHELINE_SIZE 64
+#define TOS_CACHELINE_ALIGNED
+#endif
+
+// TOS_PREDICT_TRUE and TOS_PREDICT_FALSE are branch-prediction hints.
+#if TOS_HAVE_BUILTIN(__builtin_expect) || (defined(__GNUC__) && !defined(__clang__))
+#define TOS_PREDICT_FALSE(x) (__builtin_expect(false || (x), false))
+#define TOS_PREDICT_TRUE(x) (__builtin_expect(false || (x), true))
+#else
+#define TOS_PREDICT_FALSE(x) (x)
+#define TOS_PREDICT_TRUE(x) (x)
+#endif
+
 // TOS_UNUSED()
 #define TOS_UNUSED(expr) \
     do {                 \
@@ -19,7 +90,7 @@ namespace macros_internal {
 // Note: this internal template function declaration is used by
 // TOS_ARRAYSIZE. The function doesn't need a definition, as we only use its
 // type.
-template <typename T, size_t N>
+template <typename T, std::size_t N>
 auto ArraySizeHelper(const T (&array)[N]) -> char (&)[N];
 }  // namespace macros_internal
 }  // namespace tos
@@ -90,9 +161,8 @@ auto ArraySizeHelper(const T (&array)[N]) -> char (&)[N];
 // When `NDEBUG` is not defined, `TOS_HARDENING_ASSERT()` is identical to
 // `TOS_ASSERT()`.
 //
-// See `TOS_OPTION_HARDENED` in `tos/options.h` for more
-// information on hardened mode.
-#if TOS_OPTION_HARDENED == 1 && defined(NDEBUG)
+// Define TOS_OPTION_HARDENED as 1 to enable hardened assertions in release builds.
+#if defined(TOS_OPTION_HARDENED) && TOS_OPTION_HARDENED == 1 && defined(NDEBUG)
 #define TOS_HARDENING_ASSERT(expr) \
     (TOS_PREDICT_TRUE((expr)) ? static_cast<void>(0) : [] { TOS_INTERNAL_HARDENING_ABORT(); }())
 #else
