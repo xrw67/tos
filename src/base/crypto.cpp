@@ -1,8 +1,11 @@
 #include "tos/base/crypto.h"
 
+#include <array>
 #include <climits>
 #include <cstddef>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <openssl/bio.h>
@@ -22,7 +25,11 @@ using MdPtr = std::unique_ptr<EVP_MD, decltype(&EVP_MD_free)>;
 using PkeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
 using PkeyCtxPtr = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
 
-constexpr std::uint8_t kEmptyByte = 0;
+constexpr unsigned char kEmptyByte = 0;
+
+const void* DataPointer(const char* data, std::size_t len) noexcept {
+    return len == 0 ? static_cast<const void*>(&kEmptyByte) : static_cast<const void*>(data);
+}
 
 const unsigned char* DataPointer(span<const std::uint8_t> input) noexcept {
     return input.empty() ? &kEmptyByte : input.data();
@@ -58,22 +65,6 @@ Status FailedPrecondition(std::string_view message) {
     return {StatusCode::kFailedPrecondition, message};
 }
 
-const char* DigestName(HashAlgorithm algorithm) noexcept {
-    switch (algorithm) {
-        case HashAlgorithm::kMd5:
-            return "MD5";
-        case HashAlgorithm::kSha1:
-            return "SHA1";
-        case HashAlgorithm::kSha256:
-            return "SHA256";
-        case HashAlgorithm::kSha384:
-            return "SHA384";
-        case HashAlgorithm::kSha512:
-            return "SHA512";
-    }
-    return nullptr;
-}
-
 Result<MdPtr> FetchDigest(const char* name) {
     ERR_clear_error();
     EVP_MD* digest = EVP_MD_fetch(nullptr, name, nullptr);
@@ -81,6 +72,127 @@ Result<MdPtr> FetchDigest(const char* name) {
         return Unimplemented("OpenSSL digest is unavailable from the active provider");
     }
     return MdPtr(digest, EVP_MD_free);
+}
+
+Result<MdCtxPtr> NewDigestContext(const EVP_MD* digest) {
+    ERR_clear_error();
+    EVP_MD_CTX* context = EVP_MD_CTX_new();
+    if (context == nullptr) {
+        return InternalError("OpenSSL could not allocate a digest context");
+    }
+    MdCtxPtr result(context, EVP_MD_CTX_free);
+    if (EVP_DigestInit_ex2(result.get(), digest, nullptr) != 1) {
+        return InternalError("OpenSSL could not initialize a digest operation");
+    }
+    return result;
+}
+
+Status UpdateDigest(EVP_MD_CTX* context, const char* data, std::size_t len) {
+    if (len == 0) {
+        return Status::Ok();
+    }
+    ERR_clear_error();
+    if (EVP_DigestUpdate(context, DataPointer(data, len), len) != 1) {
+        return InternalError("OpenSSL digest operation failed");
+    }
+    return Status::Ok();
+}
+
+Result<std::string> FinishDigest(EVP_MD_CTX* context) {
+    std::array<unsigned char, EVP_MAX_MD_SIZE> bytes{};
+    unsigned int size = 0;
+    ERR_clear_error();
+    if (EVP_DigestFinal_ex(context, bytes.data(), &size) != 1) {
+        return InternalError("OpenSSL could not finalize a digest operation");
+    }
+
+    constexpr char kHexDigits[] = "0123456789abcdef";
+    std::string text(static_cast<std::size_t>(size) * 2, '\0');
+    for (std::size_t index = 0; index < size; ++index) {
+        text[index * 2] = kHexDigits[bytes[index] >> 4];
+        text[index * 2 + 1] = kHexDigits[bytes[index] & 0x0f];
+    }
+    return text;
+}
+
+Result<std::string> DigestData(const char* name, const char* data, std::size_t len) {
+    if (data == nullptr && len != 0) {
+        return InvalidArgument("data must not be null when len is nonzero");
+    }
+    auto digest = FetchDigest(name);
+    if (!digest) {
+        return std::move(digest).status();
+    }
+    auto context = NewDigestContext(digest.value().get());
+    if (!context) {
+        return std::move(context).status();
+    }
+    Status updated = UpdateDigest(context.value().get(), data, len);
+    if (!updated) {
+        return std::move(updated);
+    }
+    return FinishDigest(context.value().get());
+}
+
+Status FileError(const std::error_code& error, std::string_view action,
+                 const std::string& filename) {
+    StatusCode code = StatusCode::kUnavailable;
+    if (error == std::errc::permission_denied || error == std::errc::operation_not_permitted) {
+        code = StatusCode::kPermissionDenied;
+    } else if (error == std::errc::no_such_file_or_directory) {
+        code = StatusCode::kNotFound;
+    } else if (error == std::errc::no_space_on_device) {
+        code = StatusCode::kResourceExhausted;
+    } else if (error == std::errc::is_a_directory || error == std::errc::not_a_directory) {
+        code = StatusCode::kFailedPrecondition;
+    }
+    return Status(code, std::string(action) + " '" + filename + "': " + error.message());
+}
+
+Result<std::string> DigestFile(const char* name, const std::string& filename) {
+    const std::filesystem::path path = std::filesystem::u8path(filename);
+    std::error_code error;
+    const std::filesystem::file_status status = std::filesystem::status(path, error);
+    if (error) {
+        return FileError(error, "could not inspect file", filename);
+    }
+    if (!std::filesystem::exists(status)) {
+        return Status(StatusCode::kNotFound, "file does not exist '" + filename + "'");
+    }
+    if (!std::filesystem::is_regular_file(status)) {
+        return Status(StatusCode::kFailedPrecondition,
+                      "path is not a regular file '" + filename + "'");
+    }
+
+    std::ifstream input(path, std::ios::binary);
+    if (!input.is_open()) {
+        return Status(StatusCode::kUnavailable, "could not open file '" + filename + "'");
+    }
+    auto digest = FetchDigest(name);
+    if (!digest) {
+        return std::move(digest).status();
+    }
+    auto context = NewDigestContext(digest.value().get());
+    if (!context) {
+        return std::move(context).status();
+    }
+
+    std::array<char, 16 * 1024> buffer{};
+    while (input) {
+        input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize count = input.gcount();
+        if (count > 0) {
+            Status updated =
+                UpdateDigest(context.value().get(), buffer.data(), static_cast<std::size_t>(count));
+            if (!updated) {
+                return std::move(updated);
+            }
+        }
+    }
+    if (!input.eof()) {
+        return Status(StatusCode::kUnavailable, "could not read file '" + filename + "'");
+    }
+    return FinishDigest(context.value().get());
 }
 
 bool IsEncryptedPem(std::string_view pem) noexcept {
@@ -282,41 +394,56 @@ Status RequireKey(EVP_PKEY* key) {
 
 }  // namespace
 
-Result<std::vector<std::uint8_t>> Hash(HashAlgorithm algorithm, span<const std::uint8_t> input) {
-    const char* name = DigestName(algorithm);
-    if (name == nullptr) {
-        return InvalidArgument("unknown hash algorithm");
-    }
-    auto digest = FetchDigest(name);
-    if (!digest) {
-        return std::move(digest).status();
-    }
-    std::vector<std::uint8_t> output(EVP_MD_get_size(digest.value().get()));
-    std::size_t output_size = output.size();
-    ERR_clear_error();
-    if (EVP_Q_digest(nullptr, name, nullptr, DataPointer(input), input.size(), output.data(),
-                     &output_size) != 1) {
-        return InternalError("OpenSSL digest operation failed");
-    }
-    output.resize(output_size);
-    return output;
+Result<std::string> Md5File(const std::string& filename) { return DigestFile("MD5", filename); }
+
+std::string Md5Data(const char* data, std::size_t len) {
+    auto result = DigestData("MD5", data, len);
+    return result ? std::move(result).value() : std::string();
 }
 
-Result<std::string> HashHex(HashAlgorithm algorithm, span<const std::uint8_t> input) {
-    auto digest = Hash(algorithm, input);
-    if (!digest) {
-        return std::move(digest).status();
-    }
+std::string Md5String(std::string_view data) { return Md5Data(data.data(), data.size()); }
 
-    constexpr char kHexDigits[] = "0123456789abcdef";
-    const auto& bytes = digest.value();
-    std::string text(bytes.size() * 2, '\0');
-    for (std::size_t index = 0; index < bytes.size(); ++index) {
-        text[index * 2] = kHexDigits[bytes[index] >> 4];
-        text[index * 2 + 1] = kHexDigits[bytes[index] & 0x0f];
-    }
-    return text;
+Result<std::string> Sha1File(const std::string& filename) { return DigestFile("SHA1", filename); }
+
+std::string Sha1Data(const char* data, std::size_t len) {
+    auto result = DigestData("SHA1", data, len);
+    return result ? std::move(result).value() : std::string();
 }
+
+std::string Sha1String(std::string_view data) { return Sha1Data(data.data(), data.size()); }
+
+Result<std::string> Sha256File(const std::string& filename) {
+    return DigestFile("SHA256", filename);
+}
+
+std::string Sha256Data(const char* data, std::size_t len) {
+    auto result = DigestData("SHA256", data, len);
+    return result ? std::move(result).value() : std::string();
+}
+
+std::string Sha256String(std::string_view data) { return Sha256Data(data.data(), data.size()); }
+
+Result<std::string> Sha384File(const std::string& filename) {
+    return DigestFile("SHA384", filename);
+}
+
+std::string Sha384Data(const char* data, std::size_t len) {
+    auto result = DigestData("SHA384", data, len);
+    return result ? std::move(result).value() : std::string();
+}
+
+std::string Sha384String(std::string_view data) { return Sha384Data(data.data(), data.size()); }
+
+Result<std::string> Sha512File(const std::string& filename) {
+    return DigestFile("SHA512", filename);
+}
+
+std::string Sha512Data(const char* data, std::size_t len) {
+    auto result = DigestData("SHA512", data, len);
+    return result ? std::move(result).value() : std::string();
+}
+
+std::string Sha512String(std::string_view data) { return Sha512Data(data.data(), data.size()); }
 
 Result<RsaPrivateKey> ParseRsaPrivateKeyPem(std::string_view pem) {
     auto key = ReadPrivateKey(pem, "RSA", true);

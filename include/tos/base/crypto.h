@@ -18,33 +18,50 @@ struct CryptoKey;
 struct CryptoAccess;
 }  // namespace detail
 
-/// Digest algorithms provided through the OpenSSL 3 default provider.
-/// MD5 and SHA-1 are retained only to verify or interoperate with legacy
-/// protocols. New security designs must use SHA-256, SHA-384, or SHA-512.
-enum class HashAlgorithm {
-    kMd5,
-    kSha1,
-    kSha256,
-    kSha384,
-    kSha512,
-};
-
-/// Computes a one-shot digest of arbitrary binary input.
+/// Computes MD5 hashes using the OpenSSL 3 default provider. MD5 is retained
+/// only for legacy-protocol compatibility; new security designs must use a
+/// SHA-2 function below. Hash text is lowercase hexadecimal ASCII without a
+/// prefix or separators.
 ///
-/// The returned bytes are in the standard algorithm-defined order. An
-/// unsupported OpenSSL provider algorithm returns kUnimplemented; other
-/// OpenSSL failures return kInternal. Output allocation exceptions propagate.
-/// This function does not retain input and is safe to call concurrently.
-Result<std::vector<std::uint8_t>> Hash(HashAlgorithm algorithm, span<const std::uint8_t> input);
+/// Md5File streams the file named by filename without retaining filename.
+/// Missing files return
+/// kNotFound, non-regular files return kFailedPrecondition, file I/O failures
+/// return a classified Status, unavailable OpenSSL support returns
+/// kUnimplemented, and other OpenSSL failures return kInternal. Md5Data and
+/// Md5String do not retain their input and return the hex hash directly. Their
+/// only failure representation is an empty string, used for a null data
+/// pointer with nonzero len or an OpenSSL failure; a valid MD5 hash is never
+/// empty. Output allocation and path-construction exceptions propagate. All
+/// three functions are safe to call concurrently.
+[[nodiscard]] Result<std::string> Md5File(const std::string& filename);
+[[nodiscard]] std::string Md5Data(const char* data, std::size_t len);
+[[nodiscard]] std::string Md5String(std::string_view data);
 
-/// Computes a one-shot digest and encodes it as lowercase hexadecimal ASCII.
-///
-/// The result has no prefix or separators. Its error behavior matches Hash():
-/// an unsupported provider algorithm returns kUnimplemented, an unknown enum
-/// value returns kInvalidArgument, and other OpenSSL failures return kInternal.
-/// Output allocation exceptions propagate. This function does not retain input
-/// and is safe to call concurrently.
-Result<std::string> HashHex(HashAlgorithm algorithm, span<const std::uint8_t> input);
+/// Computes SHA-1 hashes. SHA-1 is retained only for legacy-protocol
+/// compatibility; new security designs must use a SHA-2 function below. Its
+/// failure, exception, ownership, and thread-safety behavior matches Md5File,
+/// Md5Data, and Md5String respectively.
+[[nodiscard]] Result<std::string> Sha1File(const std::string& filename);
+[[nodiscard]] std::string Sha1Data(const char* data, std::size_t len);
+[[nodiscard]] std::string Sha1String(std::string_view data);
+
+/// Computes SHA-256 hashes. Its failure, exception, ownership, and
+/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+[[nodiscard]] Result<std::string> Sha256File(const std::string& filename);
+[[nodiscard]] std::string Sha256Data(const char* data, std::size_t len);
+[[nodiscard]] std::string Sha256String(std::string_view data);
+
+/// Computes SHA-384 hashes. Its failure, exception, ownership, and
+/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+[[nodiscard]] Result<std::string> Sha384File(const std::string& filename);
+[[nodiscard]] std::string Sha384Data(const char* data, std::size_t len);
+[[nodiscard]] std::string Sha384String(std::string_view data);
+
+/// Computes SHA-512 hashes. Its failure, exception, ownership, and
+/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+[[nodiscard]] Result<std::string> Sha512File(const std::string& filename);
+[[nodiscard]] std::string Sha512Data(const char* data, std::size_t len);
+[[nodiscard]] std::string Sha512String(std::string_view data);
 
 /// Move-only RSA private key backed by an OpenSSL EVP_PKEY.
 ///

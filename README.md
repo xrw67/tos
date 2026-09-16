@@ -581,32 +581,33 @@ int main() {
 
 ## 加密
 
-`<tos/base/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
-十六进制文本的 `HashHex()`、RSA 和 Ed25519。二进制输入为 `tos::span<const std::uint8_t>`，
-所有可预期失败通过 `Result` 或 `Status` 返回；输出缓冲区和文本的分配异常仍按 C++
-异常传播。
+`<tos/base/crypto.h>` 通过系统 OpenSSL 3 提供 MD5、SHA-1、SHA-256、SHA-384 和 SHA-512 的
+按算法命名摘要接口：`Md5File/Data/String`、`Sha1File/Data/String` 等。所有成功结果直接是
+小写、无前缀的十六进制字符串。`*File()` 流式读取文件并以 `Result<std::string>` 报告文件和
+OpenSSL 错误；`*Data()` 与 `*String()` 直接返回字符串，传入空指针和非零长度或发生 OpenSSL
+失败时返回空字符串。输出文本的分配异常仍按 C++ 异常传播。
 
 ```cpp
 #include "tos/base/crypto.h"
 
-#include <cstdint>
-#include <vector>
+#include <iostream>
+#include <string>
 
-const std::vector<std::uint8_t> data = {'t', 'o', 's'};
-const auto digest = tos::HashHex(tos::HashAlgorithm::kSha256, tos::span<const std::uint8_t>(data));
-if (!digest) {
-    return 1;
-}
+const std::string data = "tos";
+const std::string digest = tos::Sha256String(data);
+std::cout << digest << '\n';
 ```
 
-MD5 和 SHA-1 仅为遗留协议兼容保留；新的安全设计必须选择 SHA-256、SHA-384 或
-SHA-512。RSA 仅支持至少 2048 位密钥、RSA-PSS/SHA-256 签名和
-RSA-OAEP-SHA-256 加密，禁用 PKCS#1 v1.5；Ed25519 仅支持标准纯签名。密钥对象为
+`HashAlgorithm`、`Hash()` 和 `HashHex()` 已移除。迁移时请按所需算法改用对应的
+`*Data()`、`*String()` 或 `*File()` 函数；后者会流式读取文件。MD5 和 SHA-1 仅为遗留协议
+兼容保留；新的安全设计必须选择 SHA-256、SHA-384 或 SHA-512。RSA 仅支持至少 2048 位
+密钥、RSA-PSS/SHA-256 签名和 RSA-OAEP-SHA-256 加密，禁用 PKCS#1 v1.5；Ed25519
+仅支持标准纯签名。密钥对象为
 move-only 且拥有原生密钥，const 加密操作可并发调用；移动、销毁或修改同一对象需要
 调用方同步。
 
-私钥只接受和输出未加密 PEM（PKCS#8 私钥、SPKI 公钥）；不支持 DER、证书、文件
-I/O、口令处理或流式摘要。库不擦除调用方提供的 PEM，也不承诺擦除返回的私钥、明文、
+私钥只接受和输出未加密 PEM（PKCS#8 私钥、SPKI 公钥）；不支持 DER、证书、私钥文件
+I/O 或口令处理。库不擦除调用方提供的 PEM，也不承诺擦除返回的私钥、明文、
 签名或摘要缓冲区，调用方负责敏感数据的生命周期和存储策略。签名或 RSA-OAEP 密文
 校验失败返回 `kUnauthenticated`，且不会暴露 OpenSSL 原始错误信息。
 

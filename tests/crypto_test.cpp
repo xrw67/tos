@@ -1,7 +1,11 @@
 #include "tos/base/crypto.h"
 
+#include <atomic>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -38,41 +42,92 @@ span<const std::uint8_t> View(const std::vector<std::uint8_t>& bytes) {
     return {bytes.data(), bytes.size()};
 }
 
-TEST(CryptoHashTest, MatchesKnownDigestVectors) {
-    const std::vector<std::uint8_t> input = Bytes("abc");
+class TemporaryDirectory {
+   public:
+    TemporaryDirectory() {
+        path_ = std::filesystem::temp_directory_path() /
+                ("tos-crypto-test-" + std::to_string(next_id_.fetch_add(1)));
+        std::filesystem::create_directories(path_);
+    }
+
+    TemporaryDirectory(const TemporaryDirectory&) = delete;
+    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
+
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path_, ignored);
+    }
+
+    const std::filesystem::path& path() const noexcept { return path_; }
+
+   private:
+    static std::atomic<std::uint64_t> next_id_;
+    std::filesystem::path path_;
+};
+
+std::atomic<std::uint64_t> TemporaryDirectory::next_id_{0};
+
+TEST(CryptoHashTest, MatchesKnownDigestVectorsForDataAndStrings) {
     const struct {
-        HashAlgorithm algorithm;
+        std::string (*data)(const char*, std::size_t);
+        std::string (*string)(std::string_view);
         std::string_view expected;
     } cases[] = {
-        {HashAlgorithm::kMd5, "900150983cd24fb0d6963f7d28e17f72"},
-        {HashAlgorithm::kSha1, "a9993e364706816aba3e25717850c26c9cd0d89d"},
-        {HashAlgorithm::kSha256,
+        {Md5Data, Md5String, "900150983cd24fb0d6963f7d28e17f72"},
+        {Sha1Data, Sha1String, "a9993e364706816aba3e25717850c26c9cd0d89d"},
+        {Sha256Data, Sha256String,
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
-        {HashAlgorithm::kSha384,
+        {Sha384Data, Sha384String,
          "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086"
          "072ba1e7cc2358baeca134c825a7"},
-        {HashAlgorithm::kSha512,
+        {Sha512Data, Sha512String,
          "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39"
          "a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"},
     };
 
     for (const auto& test_case : cases) {
-        const auto digest = Hash(test_case.algorithm, View(input));
-        ASSERT_TRUE(digest) << static_cast<int>(test_case.algorithm);
-        EXPECT_EQ(digest.value(), Hex(test_case.expected));
+        EXPECT_EQ(test_case.data("abc", 3), test_case.expected);
+        EXPECT_EQ(test_case.string("abc"), test_case.expected);
+    }
+}
 
-        const auto hex = HashHex(test_case.algorithm, View(input));
-        ASSERT_TRUE(hex) << static_cast<int>(test_case.algorithm);
-        EXPECT_EQ(hex.value(), test_case.expected);
+TEST(CryptoHashTest, HashesFilesAndReportsFileErrors) {
+    TemporaryDirectory directory;
+    const std::filesystem::path file = directory.path() / "payload.bin";
+    const std::string content(20 * 1024, 'x');
+    {
+        std::ofstream output(file, std::ios::binary);
+        ASSERT_TRUE(output.is_open());
+        output.write(content.data(), static_cast<std::streamsize>(content.size()));
+        ASSERT_TRUE(output.good());
     }
 
-    const auto unknown = Hash(static_cast<HashAlgorithm>(999), View(input));
-    EXPECT_FALSE(unknown);
-    EXPECT_EQ(unknown.status().code(), StatusCode::kInvalidArgument);
+    const struct {
+        Result<std::string> (*file)(const std::string&);
+        std::string (*string)(std::string_view);
+    } cases[] = {
+        {Md5File, Md5String},       {Sha1File, Sha1String},     {Sha256File, Sha256String},
+        {Sha384File, Sha384String}, {Sha512File, Sha512String},
+    };
 
-    const auto unknown_hex = HashHex(static_cast<HashAlgorithm>(999), View(input));
-    EXPECT_FALSE(unknown_hex);
-    EXPECT_EQ(unknown_hex.status().code(), StatusCode::kInvalidArgument);
+    for (const auto& test_case : cases) {
+        const auto result = test_case.file(file.u8string());
+        ASSERT_TRUE(result);
+        EXPECT_EQ(result.value(), test_case.string(content));
+    }
+
+    const auto missing = Sha256File((directory.path() / "missing").u8string());
+    EXPECT_FALSE(missing);
+    EXPECT_EQ(missing.status().code(), StatusCode::kNotFound);
+
+    const auto directory_result = Sha256File(directory.path().u8string());
+    EXPECT_FALSE(directory_result);
+    EXPECT_EQ(directory_result.status().code(), StatusCode::kFailedPrecondition);
+}
+
+TEST(CryptoHashTest, RejectsNullNonemptyDataWithoutDereferencingIt) {
+    EXPECT_TRUE(Md5Data(nullptr, 1).empty());
+    EXPECT_EQ(Md5Data(nullptr, 0), "d41d8cd98f00b204e9800998ecf8427e");
 }
 
 TEST(CryptoRsaTest, GeneratesExportsAndUsesModernRsaOperations) {
