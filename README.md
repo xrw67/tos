@@ -486,6 +486,38 @@ int main() {
 }
 ```
 
+## 动态库
+
+`<tos/base/dynamic_library.h>` 提供 `tos::DynamicLibrary`，用于按绝对 UTF-8 路径加载
+Linux、macOS 或 Windows 的动态库。它是 move-only 的 RAII 句柄，析构时尽力卸载；也可调用
+`Unload()` 提前释放。空路径和相对路径返回 `kInvalidArgument`，原生加载器失败会保留诊断信息。
+该接口不搜索当前目录、不拼接平台库名，也不提供插件注册或 ABI 校验。
+
+`GetSymbol<T>()` 要求 `T` 为函数指针或数据指针类型。空名称、嵌入 NUL 的名称、未加载句柄和
+缺失导出分别返回 `kInvalidArgument`、`kFailedPrecondition` 和 `kNotFound`。返回的指针是借用值，
+调用方必须在每次使用期间保持 `DynamicLibrary` 已加载；成功 `Unload()` 或析构后，所有已取得的
+指针都失效。同一对象的查询、卸载、移动和析构需要由调用方同步，独立对象可并发加载。
+
+```cpp
+#include "tos/base/dynamic_library.h"
+
+using Increment = int (*)(int);
+
+auto path = tos::Path::Parse("/absolute/path/to/libexample.so");
+if (!path) {
+    return 1;
+}
+auto library = tos::DynamicLibrary::Load(path.value());
+if (!library) {
+    return 1;
+}
+auto increment = library->GetSymbol<Increment>("example_increment");
+if (!increment || increment.value()(41) != 42) {
+    return 1;
+}
+return library->Unload() ? 0 : 1;
+```
+
 ## Windows 注册表
 
 `<tos/base/registry.h>` 提供本地 Windows 注册表的 UTF-8、RAII 和强类型键值操作。仅支持

@@ -15,6 +15,7 @@ add_executable(tos_unit_tests
     strconv_test.cpp
     filesystem_test.cpp
     crypto_test.cpp
+    dynamic_library_test.cpp
     logging_test.cpp
     scheduler_test.cpp
     thread_pool_test.cpp
@@ -22,6 +23,8 @@ add_executable(tos_unit_tests
     debug_test.cpp
     event_bus_test.cpp
 )
+
+add_library(tos_dynamic_library_test_module SHARED dynamic_library_test_module.cpp)
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
 target_link_libraries(tos_process_test_helper PRIVATE tos::base)
@@ -33,8 +36,9 @@ target_link_libraries(
     PRIVATE tos::app GTest::gtest_main)
 target_compile_definitions(
     tos_unit_tests
-    PRIVATE TOS_PROCESS_TEST_HELPER="$<TARGET_FILE:tos_process_test_helper>")
-add_dependencies(tos_unit_tests tos_process_test_helper)
+    PRIVATE TOS_DYNAMIC_LIBRARY_TEST_MODULE="$<TARGET_FILE:tos_dynamic_library_test_module>"
+            TOS_PROCESS_TEST_HELPER="$<TARGET_FILE:tos_process_test_helper>")
+add_dependencies(tos_unit_tests tos_dynamic_library_test_module tos_process_test_helper)
 
 add_test(NAME tos.ApplicationConsumer COMMAND tos_app_consumer)
 set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT 30)
