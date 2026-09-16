@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 #include "tos/base/filesystem.h"
@@ -51,6 +52,10 @@ class System final {
     /// Returns the native identifier of the calling thread, or zero if unavailable. The value is
     /// platform-specific and is suitable only for identity comparison and diagnostics.
     [[nodiscard]] static std::uint64_t CurrentThreadId() noexcept;
+
+    /// Returns the current host name as UTF-8. Unsupported platforms return kUnimplemented;
+    /// native query and character-conversion failures return a classified Status.
+    [[nodiscard]] static Result<std::string> GetHostName();
 
     /// Returns the absolute UTF-8 path of the currently running executable. Unsupported platforms
     /// return kUnimplemented; native query failures return a classified Status.

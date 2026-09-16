@@ -33,6 +33,12 @@ TEST(SystemTest, ReportsTheBuildTargetArchitecture) {
 #endif
 }
 
+TEST(SystemTest, ReportsCurrentHostName) {
+    auto host_name = System::GetHostName();
+    ASSERT_TRUE(host_name) << host_name.status().ToString();
+    EXPECT_FALSE(host_name->empty());
+}
+
 TEST(SystemTest, ReportsExecutablePathAndDirectory) {
     auto executable = System::CurrentProcessPath();
     ASSERT_TRUE(executable) << executable.status().ToString();

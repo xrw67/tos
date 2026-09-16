@@ -1,5 +1,6 @@
 #include "tos/base/system.h"
 
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <limits>
@@ -71,6 +72,26 @@ std::uint64_t System::CurrentThreadId() noexcept {
     return thread_id > 0 ? static_cast<std::uint64_t>(thread_id) : 0;
 #else
     return 0;
+#endif
+}
+
+Result<std::string> System::GetHostName() {
+#ifdef _WIN32
+    std::array<wchar_t, MAX_COMPUTERNAME_LENGTH + 1> host_name{};
+    DWORD length = static_cast<DWORD>(host_name.size());
+    if (GetComputerNameW(host_name.data(), &length) == 0) {
+        return WindowsError(GetLastError(), "GetComputerNameW");
+    }
+    return WideToUtf8(std::wstring_view(host_name.data(), length));
+#elif defined(__APPLE__) || defined(__linux__)
+    std::array<char, 256> host_name{};
+    if (::gethostname(host_name.data(), host_name.size() - 1) != 0) {
+        return ErrnoError(errno, "gethostname");
+    }
+    host_name.back() = '\0';
+    return std::string(host_name.data());
+#else
+    return Status(StatusCode::kUnimplemented, "host name is unsupported on this platform");
 #endif
 }
 
