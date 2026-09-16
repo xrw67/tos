@@ -46,30 +46,6 @@ Result<std::vector<std::uint8_t>> Hash(HashAlgorithm algorithm, span<const std::
 /// and is safe to call concurrently.
 Result<std::string> HashHex(HashAlgorithm algorithm, span<const std::uint8_t> input);
 
-/// Encodes binary input with RFC 4648 standard Base64 and required '=' padding.
-/// It returns kOutOfRange if the input cannot be represented by OpenSSL's API.
-/// Output allocation exceptions propagate. The function does not retain input
-/// and is safe to call concurrently.
-Result<std::string> Base64Encode(span<const std::uint8_t> input);
-
-/// Strictly decodes RFC 4648 standard Base64.
-/// Whitespace, URL-safe characters, missing padding, non-canonical pad bits,
-/// and malformed input return kInvalidArgument. Output allocation exceptions
-/// propagate. The function does not retain input and is safe to call concurrently.
-Result<std::vector<std::uint8_t>> Base64Decode(std::string_view encoded);
-
-/// Encodes binary input with RFC 4648 Base64url without '=' padding.
-/// It returns kOutOfRange if the input cannot be represented by OpenSSL's API.
-/// Output allocation exceptions propagate. The function does not retain input
-/// and is safe to call concurrently.
-Result<std::string> Base64UrlEncode(span<const std::uint8_t> input);
-
-/// Strictly decodes unpadded RFC 4648 Base64url.
-/// Standard Base64 characters, '=', whitespace, non-canonical pad bits, and
-/// malformed input return kInvalidArgument. Output allocation exceptions
-/// propagate. The function does not retain input and is safe to call concurrently.
-Result<std::vector<std::uint8_t>> Base64UrlDecode(std::string_view encoded);
-
 /// Move-only RSA private key backed by an OpenSSL EVP_PKEY.
 ///
 /// The key owns its native representation. It accepts only unencrypted PEM

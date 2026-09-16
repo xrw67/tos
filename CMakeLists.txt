@@ -63,6 +63,7 @@ find_package(Threads REQUIRED)
 add_library(
     tosbase
     STATIC
+    src/base/base64.cpp
     src/base/crypto.cpp
     src/base/dynamic_library.cpp
     src/base/environment.cpp

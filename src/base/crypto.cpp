@@ -1,6 +1,5 @@
 #include "tos/base/crypto.h"
 
-#include <algorithm>
 #include <climits>
 #include <cstddef>
 #include <cstring>
@@ -82,121 +81,6 @@ Result<MdPtr> FetchDigest(const char* name) {
         return Unimplemented("OpenSSL digest is unavailable from the active provider");
     }
     return MdPtr(digest, EVP_MD_free);
-}
-
-bool IsBase64Character(char character) noexcept {
-    return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
-           (character >= '0' && character <= '9') || character == '+' || character == '/';
-}
-
-bool IsBase64UrlCharacter(char character) noexcept {
-    return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
-           (character >= '0' && character <= '9') || character == '-' || character == '_';
-}
-
-int Base64Value(char character) noexcept {
-    if (character >= 'A' && character <= 'Z') {
-        return character - 'A';
-    }
-    if (character >= 'a' && character <= 'z') {
-        return character - 'a' + 26;
-    }
-    if (character >= '0' && character <= '9') {
-        return character - '0' + 52;
-    }
-    if (character == '+' || character == '-') {
-        return 62;
-    }
-    if (character == '/' || character == '_') {
-        return 63;
-    }
-    return -1;
-}
-
-Status ValidateStandardBase64(std::string_view encoded) {
-    if (encoded.size() % 4 != 0) {
-        return InvalidArgument("Base64 input must have required padding");
-    }
-
-    std::size_t padding = 0;
-    if (!encoded.empty() && encoded.back() == '=') {
-        padding = 1;
-        if (encoded.size() >= 2 && encoded[encoded.size() - 2] == '=') {
-            padding = 2;
-        }
-    }
-    if (padding > 2 || (padding != 0 && encoded.size() < 4)) {
-        return InvalidArgument("Base64 input has invalid padding");
-    }
-
-    const std::size_t content_size = encoded.size() - padding;
-    for (std::size_t index = 0; index < content_size; ++index) {
-        if (!IsBase64Character(encoded[index])) {
-            return InvalidArgument("Base64 input contains an invalid character");
-        }
-    }
-    for (std::size_t index = content_size; index < encoded.size(); ++index) {
-        if (encoded[index] != '=') {
-            return InvalidArgument("Base64 padding must appear only at the end");
-        }
-    }
-    if (padding == 1 && (Base64Value(encoded[content_size - 1]) & 0x03) != 0) {
-        return InvalidArgument("Base64 input has non-canonical pad bits");
-    }
-    if (padding == 2 && (Base64Value(encoded[content_size - 1]) & 0x0f) != 0) {
-        return InvalidArgument("Base64 input has non-canonical pad bits");
-    }
-    return Status::Ok();
-}
-
-Result<std::vector<std::uint8_t>> DecodeStandardBase64(std::string_view encoded) {
-    Status validation = ValidateStandardBase64(encoded);
-    if (!validation) {
-        return validation;
-    }
-    if (encoded.empty()) {
-        return std::vector<std::uint8_t>{};
-    }
-    if (encoded.size() > static_cast<std::size_t>(INT_MAX)) {
-        return OutOfRange("Base64 input exceeds OpenSSL size limits");
-    }
-
-    std::vector<std::uint8_t> decoded((encoded.size() / 4) * 3);
-    ERR_clear_error();
-    const int decoded_size =
-        EVP_DecodeBlock(decoded.data(), reinterpret_cast<const unsigned char*>(encoded.data()),
-                        static_cast<int>(encoded.size()));
-    if (decoded_size < 0) {
-        return InternalError("OpenSSL Base64 decode failed");
-    }
-    const std::size_t padding = !encoded.empty() && encoded.back() == '='
-                                    ? (encoded[encoded.size() - 2] == '=' ? 2U : 1U)
-                                    : 0U;
-    decoded.resize(static_cast<std::size_t>(decoded_size) - padding);
-    return decoded;
-}
-
-Result<std::string> EncodeStandardBase64(span<const std::uint8_t> input) {
-    if (input.size() > static_cast<std::size_t>(INT_MAX) ||
-        input.size() > (std::numeric_limits<std::size_t>::max() - 2) / 3) {
-        return OutOfRange("Base64 input exceeds OpenSSL size limits");
-    }
-
-    const std::size_t output_size = ((input.size() + 2) / 3) * 4;
-    if (output_size > static_cast<std::size_t>(INT_MAX)) {
-        return OutOfRange("Base64 output exceeds OpenSSL size limits");
-    }
-    std::string encoded(output_size, '\0');
-    if (input.empty()) {
-        return encoded;
-    }
-    ERR_clear_error();
-    const int written = EVP_EncodeBlock(reinterpret_cast<unsigned char*>(&encoded[0]),
-                                        DataPointer(input), static_cast<int>(input.size()));
-    if (written < 0 || static_cast<std::size_t>(written) != output_size) {
-        return InternalError("OpenSSL Base64 encode failed");
-    }
-    return encoded;
 }
 
 bool IsEncryptedPem(std::string_view pem) noexcept {
@@ -432,47 +316,6 @@ Result<std::string> HashHex(HashAlgorithm algorithm, span<const std::uint8_t> in
         text[index * 2 + 1] = kHexDigits[bytes[index] & 0x0f];
     }
     return text;
-}
-
-Result<std::string> Base64Encode(span<const std::uint8_t> input) {
-    return EncodeStandardBase64(input);
-}
-
-Result<std::vector<std::uint8_t>> Base64Decode(std::string_view encoded) {
-    return DecodeStandardBase64(encoded);
-}
-
-Result<std::string> Base64UrlEncode(span<const std::uint8_t> input) {
-    auto encoded = EncodeStandardBase64(input);
-    if (!encoded) {
-        return std::move(encoded).status();
-    }
-    std::string output = std::move(encoded).value();
-    std::replace(output.begin(), output.end(), '+', '-');
-    std::replace(output.begin(), output.end(), '/', '_');
-    while (!output.empty() && output.back() == '=') {
-        output.pop_back();
-    }
-    return output;
-}
-
-Result<std::vector<std::uint8_t>> Base64UrlDecode(std::string_view encoded) {
-    if (encoded.size() > static_cast<std::size_t>(INT_MAX) - 3) {
-        return OutOfRange("Base64url input exceeds OpenSSL size limits");
-    }
-    if (encoded.find('=') != std::string_view::npos || encoded.size() % 4 == 1) {
-        return InvalidArgument("Base64url input has invalid padding");
-    }
-    for (const char character : encoded) {
-        if (!IsBase64UrlCharacter(character)) {
-            return InvalidArgument("Base64url input contains an invalid character");
-        }
-    }
-    std::string standard(encoded);
-    std::replace(standard.begin(), standard.end(), '-', '+');
-    std::replace(standard.begin(), standard.end(), '_', '/');
-    standard.append((4 - standard.size() % 4) % 4, '=');
-    return DecodeStandardBase64(standard);
 }
 
 Result<RsaPrivateKey> ParseRsaPrivateKeyPem(std::string_view pem) {

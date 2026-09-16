@@ -75,40 +75,6 @@ TEST(CryptoHashTest, MatchesKnownDigestVectors) {
     EXPECT_EQ(unknown_hex.status().code(), StatusCode::kInvalidArgument);
 }
 
-TEST(CryptoBase64Test, EncodesAndStrictlyDecodesStandardBase64) {
-    const std::vector<std::uint8_t> input = Bytes("hello world");
-    const auto encoded = Base64Encode(View(input));
-    ASSERT_TRUE(encoded);
-    EXPECT_EQ(encoded.value(), "aGVsbG8gd29ybGQ=");
-
-    const auto decoded = Base64Decode(encoded.value());
-    ASSERT_TRUE(decoded);
-    EXPECT_EQ(decoded.value(), input);
-
-    for (const std::string_view invalid : {"Zg", "Zg=", "Zg==\n", "Zh==", "Zg=a", "-g=="}) {
-        const auto result = Base64Decode(invalid);
-        EXPECT_FALSE(result) << invalid;
-        EXPECT_EQ(result.status().code(), StatusCode::kInvalidArgument) << invalid;
-    }
-}
-
-TEST(CryptoBase64Test, EncodesAndStrictlyDecodesUnpaddedBase64Url) {
-    const std::vector<std::uint8_t> input = {0xfb, 0xff, 0xff};
-    const auto encoded = Base64UrlEncode(View(input));
-    ASSERT_TRUE(encoded);
-    EXPECT_EQ(encoded.value(), "-___");
-
-    const auto decoded = Base64UrlDecode(encoded.value());
-    ASSERT_TRUE(decoded);
-    EXPECT_EQ(decoded.value(), input);
-
-    for (const std::string_view invalid : {"+___", "-___=", "A", "Zh", "aGVs\n"}) {
-        const auto result = Base64UrlDecode(invalid);
-        EXPECT_FALSE(result) << invalid;
-        EXPECT_EQ(result.status().code(), StatusCode::kInvalidArgument) << invalid;
-    }
-}
-
 TEST(CryptoRsaTest, GeneratesExportsAndUsesModernRsaOperations) {
     const auto generated = GenerateRsaPrivateKey(2048);
     ASSERT_TRUE(generated);

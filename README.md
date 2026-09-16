@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，不依赖 OpenSSL 的 Base64、链接系统 OpenSSL 的 `crypto`、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -582,11 +582,9 @@ int main() {
 ## 加密
 
 `<tos/base/crypto.h>` 通过系统 OpenSSL 3 提供单次 `Hash()` 与返回小写无前缀
-十六进制文本的 `HashHex()`、严格 RFC 4648
-Base64/Base64url、RSA 和 Ed25519。二进制输入为 `tos::span<const std::uint8_t>`，
+十六进制文本的 `HashHex()`、RSA 和 Ed25519。二进制输入为 `tos::span<const std::uint8_t>`，
 所有可预期失败通过 `Result` 或 `Status` 返回；输出缓冲区和文本的分配异常仍按 C++
-异常传播。Base64 标准变体必须带规范 `=` 填充，Base64url 必须无填充，两个解码器均
-拒绝空白、混合字母表和非规范 pad bits。
+异常传播。
 
 ```cpp
 #include "tos/base/crypto.h"
@@ -611,6 +609,26 @@ move-only 且拥有原生密钥，const 加密操作可并发调用；移动、�
 I/O、口令处理或流式摘要。库不擦除调用方提供的 PEM，也不承诺擦除返回的私钥、明文、
 签名或摘要缓冲区，调用方负责敏感数据的生命周期和存储策略。签名或 RSA-OAEP 密文
 校验失败返回 `kUnauthenticated`，且不会暴露 OpenSSL 原始错误信息。
+
+## Base64
+
+`<tos/base/base64.h>` 提供不依赖 OpenSSL 的严格 RFC 4648 `Base64Encode()`、
+`Base64Decode()`、`Base64UrlEncode()` 和 `Base64UrlDecode()`。标准 Base64 必须带规范
+`=` 填充，Base64url 必须无填充；两个解码器均拒绝空白、混合字母表和非规范 pad bits。
+`Base64Encode()` 和 `Base64UrlEncode()` 直接返回 `std::string`；不可表示的极端长度抛出
+`std::length_error`，分配异常仍按 C++ 异常传播。解码畸形输入返回 `kInvalidArgument`。
+
+```cpp
+#include "tos/base/base64.h"
+
+#include <cstdint>
+#include <vector>
+
+const std::vector<std::uint8_t> data = {'t', 'o', 's'};
+const auto encoded = tos::Base64UrlEncode(tos::span<const std::uint8_t>(data));
+const auto decoded = tos::Base64UrlDecode(encoded);
+return decoded && decoded.value() == data ? 0 : 1;
+```
 
 ## 时间
 
