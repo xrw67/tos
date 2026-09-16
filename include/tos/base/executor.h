@@ -138,7 +138,7 @@ class Executor {
         std::future<ResultType> future = packaged.get_future();
         Status status = Post(Task([task = std::move(packaged)]() mutable { task(); }));
         if (!status) {
-            return std::move(status);
+            return status;
         }
         return std::move(future);
     }
@@ -159,7 +159,7 @@ class Executor {
         std::future<ResultType> future = packaged.get_future();
         Status status = Post(Task([task = std::move(packaged)]() mutable { task(); }));
         if (!status) {
-            return std::move(status);
+            return status;
         }
         return SubmittedTask<ResultType>{std::move(future), std::move(cancellation)};
     }

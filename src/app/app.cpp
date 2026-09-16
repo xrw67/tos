@@ -95,7 +95,12 @@ void WriteDebugError(std::ostream& output, const Status& status) {
 
 Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& executor) {
     Status status = debug.RegisterHandler(
-        "status", [&app, &executor](const span<std::string>&, std::ostream& output) {
+        "status", [&app, &executor](const span<std::string>& args, std::ostream& output) {
+            if (!args.empty()) {
+                WriteDebugError(
+                    output, debug_detail::InvalidDebugCommand("status does not accept arguments"));
+                return;
+            }
             WriteDebugStatus(app, executor, output);
         });
     if (!status) {
@@ -104,17 +109,20 @@ Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& ex
 
     return debug.RegisterHandler(
         "log-level", [&app, &executor](const span<std::string>& args, std::ostream& output) {
-            if (args.size() >= 1) {
-                auto level = ParseDebugLogLevel(args.front());
-                if (!level) {
-                    WriteDebugError(output, level.status());
-                    return;
-                }
-                Status set_level = app.logger().SetLevel(std::move(level).value());
-                if (!set_level) {
-                    WriteDebugError(output, set_level);
-                    return;
-                }
+            if (args.size() != 1) {
+                WriteDebugError(output, debug_detail::InvalidDebugCommand(
+                                            "log-level requires exactly one argument"));
+                return;
+            }
+            auto level = ParseDebugLogLevel(args.front());
+            if (!level) {
+                WriteDebugError(output, level.status());
+                return;
+            }
+            Status set_level = app.logger().SetLevel(std::move(level).value());
+            if (!set_level) {
+                WriteDebugError(output, set_level);
+                return;
             }
             WriteDebugStatus(app, executor, output);
         });

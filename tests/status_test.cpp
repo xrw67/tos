@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace tos {
@@ -158,6 +159,13 @@ TEST(StatusTest, DefaultsToSuccess) {
     EXPECT_EQ(status.code(), StatusCode::kOk);
     EXPECT_TRUE(status.message().empty());
     EXPECT_EQ(status, Status::Ok());
+}
+
+TEST(StatusTest, IsMoveOnly) {
+    static_assert(!std::is_copy_constructible_v<Status>);
+    static_assert(!std::is_copy_assignable_v<Status>);
+    static_assert(std::is_move_constructible_v<Status>);
+    static_assert(std::is_move_assignable_v<Status>);
 }
 
 TEST(StatusTest, ComparesBothCodeAndMessage) {

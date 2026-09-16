@@ -312,9 +312,10 @@ TEST(DebugControllerTest, SupportsConcurrentExecutionRegistrationAndRemoval) {
     constexpr int kOperationsPerThread = 50;
     std::vector<std::thread> callers;
     for (int thread = 0; thread < kThreadCount; ++thread) {
-        callers.emplace_back([&debug, &succeeded, thread] {
+        callers.emplace_back([&debug, &succeeded, operations_per_thread = kOperationsPerThread,
+                              thread] {
             const std::string command = "custom-" + std::to_string(thread);
-            for (int index = 0; index < kOperationsPerThread; ++index) {
+            for (int index = 0; index < operations_per_thread; ++index) {
                 std::ostringstream status_output;
                 if (!debug.Execute("status", status_output) ||
                     !debug.RegisterHandler(command, [](const tos::span<std::string>&,
