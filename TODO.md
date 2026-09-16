@@ -74,6 +74,8 @@
   - 验收：订阅、发布、reset 和 shutdown 并发安全；无订阅者和关闭状态返回明确 Status。异步 FIFO、事件副本与背压不在当前范围内。
 - [x] `P2-05` 实现模块化 `App` 框架：`tosapp`/`tos::app` 提供 `App`、`Module`、`Context` 和 App 状态机、依赖图校验、确定性拓扑排序、OnLoad 加载回滚及 OnUnload 反向清理；App 私有共享 Executor 和 Scheduler 由 App/Context 提供。
   - 验收：覆盖重复名、缺失依赖、环、迟注册、部分启动失败、重复 Stop、并发控制器调用和析构清理。
+- [x] `P2-06` 实现嵌入式动态调试控制：`tos::app` 提供文本命令 `DebugController`，由 App 以普通处理器注册 `status` 和 `log-level` 来输出 App、Logger 与线程池快照；宿主和模块可分别通过控制器及 Context 动态注册、注销和替换处理器；不开放监听端口、任意执行、暂停恢复或内置生命周期控制。
+  - 验收：分词、稳定文本输出、等级过滤、无效命令/参数、动态注册/冲突/注销、在途处理器和并发调用均有自动化测试；示例通过 CTest 运行。
 
 ### P3：补齐通用 Foundation 与可观测性
 

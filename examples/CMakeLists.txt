@@ -10,6 +10,9 @@ target_link_libraries(tos_process_example PRIVATE tos::base)
 add_executable(tos_application_example application.cpp)
 target_link_libraries(tos_application_example PRIVATE tos::app)
 
+add_executable(tos_debug_example debugging.cpp)
+target_link_libraries(tos_debug_example PRIVATE tos::app)
+
 add_executable(tos_scheduler_example scheduler.cpp)
 target_link_libraries(tos_scheduler_example PRIVATE tos::base)
 
@@ -30,6 +33,9 @@ if(BUILD_TESTING)
 
     add_test(NAME tos.application_example COMMAND tos_application_example)
     set_tests_properties(tos.application_example PROPERTIES LABELS example TIMEOUT 30)
+
+    add_test(NAME tos.debug_example COMMAND tos_debug_example)
+    set_tests_properties(tos.debug_example PROPERTIES LABELS example TIMEOUT 30)
 
     add_test(NAME tos.scheduler_example COMMAND tos_scheduler_example)
     set_tests_properties(tos.scheduler_example PROPERTIES LABELS example TIMEOUT 30)

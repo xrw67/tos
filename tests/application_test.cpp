@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -12,6 +13,7 @@
 
 #include "tos/app/app.h"
 #include "tos/app/context.h"
+#include "tos/app/debug.h"
 #include "tos/app/module.h"
 #include "tos/app/service.h"
 
@@ -124,6 +126,29 @@ class SchedulerUnloadModule final : public tos::Module {
    private:
     std::atomic<bool>& task_finished_;
     tos::ScheduledTask task_;
+};
+
+class DebugHandlerModule final : public tos::Module {
+   public:
+    explicit DebugHandlerModule(std::atomic<int>& invocations) : invocations_(invocations) {}
+
+    std::string Name() const override { return "debug-handler"; }
+    std::vector<std::string> Dependencies() const override { return {}; }
+
+    tos::Status OnLoad(tos::Context& context) override {
+        return context.RegisterDebugHandler(
+            "module-command", [this](const tos::span<std::string>& args, std::ostream& output) {
+                ++invocations_;
+                output << "argument_count=" << args.size() << '\n';
+            });
+    }
+
+    tos::Status OnUnload(tos::Context& context) override {
+        return context.UnregisterDebugHandler("module-command");
+    }
+
+   private:
+    std::atomic<int>& invocations_;
 };
 
 tos::AppOptions QuietOptions() {
@@ -262,6 +287,24 @@ TEST(AppTest, ContextProvidesEventBusAndStopClosesIt) {
     EXPECT_EQ(app.context().events().PublishSync(AppEvent{8}).code(),
               tos::StatusCode::kFailedPrecondition);
     EXPECT_TRUE(subscription.Reset());
+}
+
+TEST(AppTest, ModulesRegisterAndRemoveDebugHandlersThroughContext) {
+    tos::App app(QuietOptions());
+    std::atomic<int> invocations{0};
+    ASSERT_TRUE(app.AddModule(std::make_unique<DebugHandlerModule>(invocations)));
+    ASSERT_TRUE(app.Start());
+
+    std::ostringstream output;
+    ASSERT_TRUE(app.debug().Execute("module-command one two", output));
+    EXPECT_EQ(output.str(), "argument_count=2\n");
+    EXPECT_EQ(invocations.load(), 1);
+
+    ASSERT_TRUE(app.Stop());
+    output.str("");
+    output.clear();
+    EXPECT_EQ(app.debug().Execute("module-command", output).code(), tos::StatusCode::kNotFound);
+    EXPECT_EQ(output.str(), "");
 }
 
 TEST(AppTest, SharedExecutorIsAvailableBeforeStartAndDrainsAfterModuleUnload) {

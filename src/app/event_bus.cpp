@@ -1,11 +1,11 @@
-#include "tos/app/event_bus.h"
-
 #include <algorithm>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
+
+#include "tos/app/event.h"
 
 namespace tos {
 

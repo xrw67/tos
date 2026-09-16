@@ -1,14 +1,18 @@
 #include "tos/app/app.h"
 
+#include <cstdint>
 #include <exception>
 #include <mutex>
+#include <ostream>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
 #include "context_factory.h"
 #include "module_registry.h"
 #include "service_registry.h"
-
+#include "tos/app/debug.h"
+#include "tos/base/format.h"
 namespace tos {
 
 struct App::Impl {
@@ -18,12 +22,13 @@ struct App::Impl {
           logger(std::move(options.log)),
           executor(options.thread_pool_worker_count, options.thread_pool_queue_capacity),
           scheduler(executor),
-          context(
-              CreateAppContext(service_registry, event_bus, executor, scheduler, config, logger)) {}
+          context(CreateAppContext(service_registry, event_bus, executor, scheduler, config, logger,
+                                   debug)) {}
 
     std::string name;
     Config config;
     Logger logger;
+    DebugController debug;
     ServiceRegistry service_registry;
     EventBus event_bus;
     ThreadPool executor;
@@ -51,9 +56,78 @@ Status FirstFailure(Status current, Status candidate) {
     return current.ok() && !candidate.ok() ? std::move(candidate) : std::move(current);
 }
 
+const char* AppStateName(AppState state) noexcept {
+    switch (state) {
+        case AppState::kCreated:
+            return "created";
+        case AppState::kStarting:
+            return "starting";
+        case AppState::kRunning:
+            return "running";
+        case AppState::kStopping:
+            return "stopping";
+        case AppState::kStopped:
+            return "stopped";
+        case AppState::kFailed:
+            return "failed";
+    }
+    return "unknown";
+}
+
+void WriteDebugStatus(App& app, ThreadPool& executor, std::ostream& output) {
+    const ThreadPoolStats stats = executor.stats();
+    tos::println(output, "{}={}", "app_state", AppStateName(app.state()));
+    tos::println(output, "{}={}", "log_level", tos::LogLevelName(app.logger().level()));
+    tos::println(output, "{}={}", "executor.worker_count",
+                 static_cast<std::uint64_t>(stats.worker_count));
+    tos::println(output, "{}={}", "executor.queue_capacity",
+                 static_cast<std::uint64_t>(stats.queue_capacity));
+    tos::println(output, "{}={}", "executor.queued", static_cast<std::uint64_t>(stats.queued));
+    tos::println(output, "{}={}", "executor.running", static_cast<std::uint64_t>(stats.running));
+    tos::println(output, "{}={}", "executor.accepted", stats.accepted);
+    tos::println(output, "{}={}", "executor.rejected", stats.rejected);
+    tos::println(output, "{}={}", "executor.completed", stats.completed);
+}
+
+void WriteDebugError(std::ostream& output, const Status& status) {
+    tos::println(output, "error={}", status.ToString());
+}
+
+Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& executor) {
+    Status status = debug.RegisterHandler(
+        "status", [&app, &executor](const span<std::string>&, std::ostream& output) {
+            WriteDebugStatus(app, executor, output);
+        });
+    if (!status) {
+        return status;
+    }
+
+    return debug.RegisterHandler(
+        "log-level", [&app, &executor](const span<std::string>& args, std::ostream& output) {
+            if (args.size() >= 1) {
+                auto level = ParseDebugLogLevel(args.front());
+                if (!level) {
+                    WriteDebugError(output, level.status());
+                    return;
+                }
+                Status set_level = app.logger().SetLevel(std::move(level).value());
+                if (!set_level) {
+                    WriteDebugError(output, set_level);
+                    return;
+                }
+            }
+            WriteDebugStatus(app, executor, output);
+        });
+}
+
 }  // namespace
 
-App::App(AppOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {}
+App::App(AppOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {
+    Status registered = RegisterAppDebugHandlers(*this, impl_->debug, impl_->executor);
+    if (!registered) {
+        throw std::logic_error(registered.ToString());
+    }
+}
 
 App::~App() noexcept {
     try {
@@ -187,6 +261,7 @@ AppState App::state() const noexcept {
 Context& App::context() noexcept { return *impl_->context; }
 const Config& App::config() const noexcept { return impl_->config; }
 Logger& App::logger() noexcept { return impl_->logger; }
+DebugController& App::debug() noexcept { return impl_->debug; }
 Executor& App::executor() noexcept { return impl_->executor; }
 ScheduledExecutor& App::scheduler() noexcept { return impl_->scheduler; }
 

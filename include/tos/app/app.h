@@ -16,6 +16,8 @@
 
 namespace tos {
 
+class DebugController;
+
 /// Lifecycle state of an App. A failed app is not restartable.
 enum class AppState { kCreated, kStarting, kRunning, kStopping, kStopped, kFailed };
 
@@ -63,6 +65,11 @@ class [[nodiscard]] App {
     [[nodiscard]] Context& context() noexcept;
     [[nodiscard]] const Config& config() const noexcept;
     [[nodiscard]] Logger& logger() noexcept;
+
+    /// Returns the App-owned debug command dispatcher. App registers its standard `status` and
+    /// `log-level` commands during construction; callers may register, remove, or replace them
+    /// through this dispatcher. The reference remains valid while this App is alive.
+    [[nodiscard]] DebugController& debug() noexcept;
 
     /// Returns the App-owned shared executor. The reference remains valid while this App is alive
     /// and supports concurrent submissions, but cannot be used to stop the shared ThreadPool.

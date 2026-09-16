@@ -18,6 +18,7 @@ add_executable(tos_unit_tests
     scheduler_test.cpp
     thread_pool_test.cpp
     application_test.cpp
+    debug_test.cpp
     event_bus_test.cpp
 )
 

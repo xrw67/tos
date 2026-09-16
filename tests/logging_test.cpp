@@ -72,6 +72,30 @@ LoggerOptions FileLoggerOptions(std::shared_ptr<const IClock> clock) {
     return options;
 }
 
+TEST(LoggerTest, NamesLogLevelsInLowercase) {
+    EXPECT_STREQ(LogLevelName(LogLevel::kTrace), "trace");
+    EXPECT_STREQ(LogLevelName(LogLevel::kDebug), "debug");
+    EXPECT_STREQ(LogLevelName(LogLevel::kInfo), "info");
+    EXPECT_STREQ(LogLevelName(LogLevel::kWarning), "warning");
+    EXPECT_STREQ(LogLevelName(LogLevel::kError), "error");
+    EXPECT_STREQ(LogLevelName(LogLevel::kCritical), "critical");
+    EXPECT_STREQ(LogLevelName(LogLevel::kOff), "off");
+    EXPECT_STREQ(LogLevelName(static_cast<LogLevel>(99)), "unknown");
+}
+
+TEST(LoggerTest, ParsesLowercaseLogLevelNames) {
+    EXPECT_EQ(ParseDebugLogLevel("trace").value(), LogLevel::kTrace);
+    EXPECT_EQ(ParseDebugLogLevel("debug").value(), LogLevel::kDebug);
+    EXPECT_EQ(ParseDebugLogLevel("info").value(), LogLevel::kInfo);
+    EXPECT_EQ(ParseDebugLogLevel("warning").value(), LogLevel::kWarning);
+    EXPECT_EQ(ParseDebugLogLevel("error").value(), LogLevel::kError);
+    EXPECT_EQ(ParseDebugLogLevel("critical").value(), LogLevel::kCritical);
+    EXPECT_EQ(ParseDebugLogLevel("off").value(), LogLevel::kOff);
+    auto invalid = ParseDebugLogLevel("INFO");
+    ASSERT_FALSE(invalid);
+    EXPECT_EQ(invalid.status().code(), StatusCode::kInvalidArgument);
+}
+
 TEST(LoggerTest, FiltersLevelsAndFormatsConsoleRecords) {
     auto clock = std::make_shared<ManualClock>(Time::FromUnixNanoseconds(0));
     LoggerOptions options;

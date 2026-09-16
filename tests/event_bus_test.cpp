@@ -1,5 +1,3 @@
-#include "tos/app/event_bus.h"
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -10,6 +8,8 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include "tos/app/event.h"
 
 namespace {
 

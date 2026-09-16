@@ -74,7 +74,7 @@ target_link_libraries(your_app PRIVATE tos::app)
 
 `tos::App` 独占 `std::unique_ptr<tos::Module>` 模块，并按依赖 DAG 的确定性拓扑顺序执行 `OnLoad`，停止时反向执行 `OnUnload`。加载失败会自动回滚并进入不可重启的 `kFailed` 状态；停止会继续清理全部模块并报告首个错误。App 的 `Start`、`Stop` 和状态查询可并发调用，但回调始终串行，同一 App 不支持生命周期回调重入。
 
-`Context` 是抽象接口，由 `App` 创建私有实现并通过 `App::context()` 提供给调用方和模块；其他宿主也可实现该接口。`App` 管理内部 `ServiceRegistry`、`EventBus`、共享 `ThreadPool` 和共享 `Scheduler` 的生命周期，因此从 `App` 取得的 Context 不可在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config`、`Logger`、`Executor` 和 `ScheduledExecutor` 由 App 直接持有，模块通过 `context.config()` 获取只读配置、通过 `context.logger()` 获取线程安全 Logger、通过 `context.executor()` 获取共享执行器、通过 `context.scheduler()` 获取共享调度器；四者不属于 ServiceRegistry。`App::executor()` 与 `App::scheduler()` 返回相同的非拥有接口，不提供关闭 App 共享任务组件的权限。`context.events()` 返回同步 EventBus：`PublishSync` 只在调用方线程内、按订阅注册顺序调用同类型处理器，事件参数只在调用期间有效；无订阅者返回 `kNotFound`，关闭后订阅或发布返回 `kFailedPrecondition`。`Subscription` 离开作用域或调用 `Reset()` 时取消订阅，并等待其他线程中的在途回调完成；处理器必须同步其共享状态，处理器异常会返回给同步发布者。App 停止时先关闭 EventBus 并等待在途回调，再反向卸载模块、关闭共享 Scheduler，最后关闭提交并排空共享线程池；`OnUnload` 期间仍可提交或安排任务。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
+`Context` 是抽象接口，由 `App` 创建私有实现并通过 `App::context()` 提供给调用方和模块；其他宿主也可实现该接口。`App` 管理内部 `ServiceRegistry`、`EventBus`、共享 `ThreadPool` 和共享 `Scheduler` 的生命周期，因此从 `App` 取得的 Context 不可在 App 析构后使用。注册服务必须是无 `const`/`volatile` 限定的 `tos::Service` 派生类，通过 `RegisterService(T*)` 注册、`GetService<T>()` 获取 move-only 的 `ServiceHandle<T>`、`UnregisterService(T*)` 注销；注册表不拥有或销毁对象，未注册的 `GetService<T>()` 返回空句柄，句柄离开作用域或调用 `Reset()` 时自动归还借用。服务所有者只能在所有句柄释放且注销成功后销毁服务；Context 仅同步注册表映射，服务对象本身仍须由调用方同步。`Config`、`Logger`、`Executor` 和 `ScheduledExecutor` 由 App 直接持有，模块通过 `context.config()` 获取只读配置、通过 `context.logger()` 获取线程安全 Logger、通过 `context.executor()` 获取共享执行器、通过 `context.scheduler()` 获取共享调度器；四者不属于 ServiceRegistry。模块可通过 `context.RegisterDebugHandler()` 注册命令，并应在 `OnUnload` 调用 `context.UnregisterDebugHandler()`，以避免处理器保留模块已销毁的状态。`App::executor()` 与 `App::scheduler()` 返回相同的非拥有接口，不提供关闭 App 共享任务组件的权限。`context.events()` 返回同步 EventBus：`PublishSync` 只在调用方线程内、按订阅注册顺序调用同类型处理器，事件参数只在调用期间有效；无订阅者返回 `kNotFound`，关闭后订阅或发布返回 `kFailedPrecondition`。`Subscription` 离开作用域或调用 `Reset()` 时取消订阅，并等待其他线程中的在途回调完成；处理器必须同步其共享状态，处理器异常会返回给同步发布者。App 停止时先关闭 EventBus 并等待在途回调，再反向卸载模块、关闭共享 Scheduler，最后关闭提交并排空共享线程池；`OnUnload` 期间仍可提交或安排任务。回调抛出的异常转换为 `kInternal`，框架自身的分配异常继续传播，句柄析构会静默处理归还失败，App 析构会尽力停止活动 App。
 
 ### 任务执行
 
@@ -108,7 +108,39 @@ if (!app.Start()) return 1;
 app.Stop();
 ```
 
-0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event_bus.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
+`<tos/app/debug.h>` 提供嵌入式的文本命令 `DebugController`，供宿主把受控调试能力接入自己的终端、GUI 或安全传输层。它不会自行监听网络或 IPC、读取标准输入、执行任意代码、停止应用或暂停任务。`App` 自己拥有一个控制器，可通过 `app.debug()` 取得；它在构造时以普通处理器注册 `status` 和 `log-level`。`Execute()`、注册和注销可并发调用；销毁独立控制器或 App 时仍须由调用方等待这些调用结束。调用方拥有传入 `Execute()` 的输出流，多个并发调用共享同一流时须自行同步。
+
+`Execute(command_line, output)` 按 ASCII 空白分词，忽略前后与重复空白；引号和反斜杠是普通字节，不支持 shell 转义，空输入或嵌入 NUL 返回 `kInvalidArgument`。未知命令返回 `kNotFound`，已失败的 output 或处理器写入后失败返回 `kUnavailable`。App 默认注册的 `status` 不接受参数，向 output 写入带结尾换行的稳定 `key=value` 文本：`app_state`、`log_level` 与 `executor.*` 线程池统计。App 默认注册的 `log-level <trace|debug|info|warning|error|critical|off>` 调整最低日志等级并写入更新后的相同快照；其参数或日志器错误写为 `error=<Status::ToString()>\n`。调试输出不会导出配置、模块、服务、调度器任务或其他可能敏感的运行时内容。
+
+宿主可使用 `RegisterHandler()` 注册大小写敏感的命令；模块通过 `Context::RegisterDebugHandler()` 和 `Context::UnregisterDebugHandler()` 使用同一注册表。处理器签名为 `void(const tos::span<std::string>& args, std::ostream& output)`；`args` 是不含命令名的借用参数视图，output 是借用流，处理器可写入任意结果或错误文本。命令名不能为空，也不能包含 ASCII 空白或 NUL；重复名称返回 `kAlreadyExists`。`status` 和 `log-level` 没有特殊保留语义，先注销即可替换。注销立即禁止后续调用选择该处理器，但不等待已开始的调用；控制器会保活已选择的处理器对象，处理器捕获的外部状态仍须由宿主同步。
+
+```cpp
+#include <tos/app/debug.h>
+
+#include <sstream>
+
+tos::DebugController& debug = app.debug();
+const tos::Status registered = debug.RegisterHandler("echo", [](const tos::span<std::string>& args,
+                                                                  std::ostream& output) {
+    output << (args.empty() ? std::string("empty") : args.front());
+});
+std::ostringstream snapshot;
+std::ostringstream enabled;
+std::ostringstream echoed;
+if (!registered || !debug.Execute("status", snapshot) ||
+    !debug.Execute("log-level trace", enabled) || !debug.Execute("echo ready", echoed)) {
+    return 1;
+}
+```
+
+0.x DebugController 迁移：此前的结构化 `DebugRequest`/`DebugResponse`、`DebugCommand` 和
+`Execute(DebugRequest)` 已移除。调用方改用 `Execute("status", output)`、
+`Execute("log-level debug", output)` 等文本命令；自定义能力通过 `RegisterHandler()` 与
+`UnregisterHandler()` 接入。文本 API 的早期 `Result<std::string> Execute(command_line)` 与返回
+`Result<std::string>` 的处理器已替换为 `Status Execute(command_line, output)` 和向 output 写入的
+void 处理器。`DebugController` 不再接受 `App&` 构造参数，应用标准命令改由 `app.debug()` 提供。
+
+0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
 
 ### 自动化验证
 

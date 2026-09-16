@@ -8,11 +8,13 @@
 namespace tos {
 
 class ServiceRegistry;
+class DebugController;
 
 [[nodiscard]] std::unique_ptr<Context> CreateAppContext(ServiceRegistry& registry, EventBus& events,
                                                         Executor& executor,
                                                         ScheduledExecutor& scheduler,
-                                                        const Config& config, Logger& logger);
+                                                        const Config& config, Logger& logger,
+                                                        DebugController& debug);
 
 }  // namespace tos
 

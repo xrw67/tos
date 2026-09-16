@@ -1,11 +1,14 @@
 #ifndef TOS_APP_CONTEXT_H_
 #define TOS_APP_CONTEXT_H_
 
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <typeindex>
 #include <utility>
 
-#include "tos/app/event_bus.h"
+#include "tos/app/debug.h"
+#include "tos/app/event.h"
 #include "tos/app/service.h"
 #include "tos/base/config.h"
 #include "tos/base/executor.h"
@@ -110,6 +113,18 @@ class Context {
     /// Returns the monotonic scheduler. The reference lifetime is defined by the implementation;
     /// it supports concurrent scheduling but does not grant shutdown control.
     [[nodiscard]] virtual ScheduledExecutor& scheduler() noexcept = 0;
+
+    /// Registers a debug command handler owned by the caller. Command validation, duplicate-name
+    /// and concurrent execution behavior match DebugController::RegisterHandler. Modules that
+    /// capture their own state in a handler must unregister it during OnUnload before that state is
+    /// destroyed. Handler and registry allocation exceptions propagate.
+    [[nodiscard]] virtual Status RegisterDebugHandler(const std::string& command,
+                                                      DebugHandler handler) = 0;
+
+    /// Removes a debug command handler by exact name. Validation, missing-name, and in-flight
+    /// execution behavior match DebugController::UnregisterHandler. Handler and registry
+    /// allocation exceptions propagate.
+    [[nodiscard]] virtual Status UnregisterDebugHandler(std::string_view command) = 0;
 
     /// Registers a non-owning, unqualified Service pointer. Null returns kInvalidArgument; a
     /// duplicate exact type returns kAlreadyExists. Allocation and mutex exceptions propagate.

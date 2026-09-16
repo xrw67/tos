@@ -1,5 +1,5 @@
-#ifndef TOS_APP_EVENT_BUS_H_
-#define TOS_APP_EVENT_BUS_H_
+#ifndef TOS_APP_EVENT_H_
+#define TOS_APP_EVENT_H_
 
 #include <functional>
 #include <memory>
@@ -115,4 +115,4 @@ class EventBus {
 
 }  // namespace tos
 
-#endif  // TOS_APP_EVENT_BUS_H_
+#endif  // TOS_APP_EVENT_H_

@@ -12,6 +12,7 @@
 
 #include "tos/base/filesystem.h"
 #include "tos/base/format.h"
+#include "tos/base/result.h"
 #include "tos/base/status.h"
 #include "tos/base/time.h"
 
@@ -19,6 +20,56 @@ namespace tos {
 
 /// Severity of a log record. kOff suppresses every record.
 enum class LogLevel { kTrace, kDebug, kInfo, kWarning, kError, kCritical, kOff };
+
+/// Returns the lowercase name of a log level. Unknown enum values return "unknown". Never
+/// throws.
+[[nodiscard]] inline const char* LogLevelName(LogLevel level) noexcept {
+    switch (level) {
+        case LogLevel::kTrace:
+            return "trace";
+        case LogLevel::kDebug:
+            return "debug";
+        case LogLevel::kInfo:
+            return "info";
+        case LogLevel::kWarning:
+            return "warning";
+        case LogLevel::kError:
+            return "error";
+        case LogLevel::kCritical:
+            return "critical";
+        case LogLevel::kOff:
+            return "off";
+    }
+    return "unknown";
+}
+
+/// Parses a lowercase log level name. Unknown names return kInvalidArgument. Allocation
+/// exceptions while constructing the failure status propagate.
+[[nodiscard]] inline Result<LogLevel> ParseDebugLogLevel(std::string_view level) {
+    if (level == "trace") {
+        return LogLevel::kTrace;
+    }
+    if (level == "debug") {
+        return LogLevel::kDebug;
+    }
+    if (level == "info") {
+        return LogLevel::kInfo;
+    }
+    if (level == "warning") {
+        return LogLevel::kWarning;
+    }
+    if (level == "error") {
+        return LogLevel::kError;
+    }
+    if (level == "critical") {
+        return LogLevel::kCritical;
+    }
+    if (level == "off") {
+        return LogLevel::kOff;
+    }
+    return Status(StatusCode::kInvalidArgument,
+                  "invalid debug command: log level is not recognized");
+}
 
 /// Scalar value retained by a structured log field.
 using LogValue = std::variant<bool, std::int64_t, double, std::string>;

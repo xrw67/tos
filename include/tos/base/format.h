@@ -7,7 +7,14 @@
 #define FMT_HEADER_ONLY
 #endif
 
+#include "tos/vendor/fmt/chrono.h"
+#include "tos/vendor/fmt/core.h"
 #include "tos/vendor/fmt/format.h"
+#include "tos/vendor/fmt/os.h"
+#include "tos/vendor/fmt/ostream.h"
+#include "tos/vendor/fmt/printf.h"
+#include "tos/vendor/fmt/ranges.h"
+#include "tos/vendor/fmt/std.h"
 
 namespace tos {
 
