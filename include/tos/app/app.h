@@ -17,6 +17,7 @@
 namespace tos {
 
 class DebugController;
+class Path;
 
 /// Lifecycle state of an App. A failed app is not restartable.
 enum class AppState { kCreated, kStarting, kRunning, kStopping, kStopped, kFailed };
@@ -52,6 +53,19 @@ class [[nodiscard]] App {
     /// Takes ownership of module. Empty/duplicate names, self-dependencies, and invalid states
     /// return kInvalidArgument, kAlreadyExists, or kFailedPrecondition respectively.
     [[nodiscard]] Status AddModule(std::unique_ptr<Module> module);
+
+    /// Loads and registers one Module exported by a trusted dynamic library at an absolute path.
+    ///
+    /// The library must export the C-linkage `tos_dynamic_module` data symbol declared in
+    /// <tos/app/module.h> as a non-null `Module* const` pointing to its own global Module
+    /// object. App borrows that object and keeps the library loaded until App is destroyed; Stop()
+    /// invokes OnUnload but does not unload the library. Relative paths return kInvalidArgument;
+    /// native loader errors, missing exports, null pointers, and module-registration errors return
+    /// their respective Status values. This API is valid only in kCreated and is safe concurrently
+    /// with other App lifecycle calls. The plugin must use the same tos version, compiler, and C++
+    /// runtime as the host. Loading untrusted native code is unsafe. Allocation exceptions while
+    /// loading or registering propagate.
+    [[nodiscard]] Status AddDynamicModule(const Path& path);
 
     /// Loads every module in deterministic topological order.
     [[nodiscard]] Status Start();

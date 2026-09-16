@@ -519,6 +519,53 @@ if (!increment || increment.value()(41) != 42) {
 return library->Unload() ? 0 : 1;
 ```
 
+`<tos/app/module.h>` 与 `tos::App::AddDynamicModule(const Path&)` 在 Application
+框架中提供单模块动态库加载。动态库必须定义一个全局 `tos::Module` 对象，并导出其不可改写的指针：
+
+```cpp
+#include <tos/app/context.h>
+#include <tos/app/module.h>
+
+namespace {
+
+class ExampleModule final : public tos::Module {
+   public:
+    std::string Name() const override { return "example"; }
+    std::vector<std::string> Dependencies() const override { return {}; }
+    tos::Status OnLoad(tos::Context&) override { return tos::Status::Ok(); }
+    tos::Status OnUnload(tos::Context&) override { return tos::Status::Ok(); }
+};
+
+ExampleModule module;
+
+}  // namespace
+
+extern "C" {
+TOS_DYNAMIC_MODULE_EXPORT_DECLARATION extern tos::Module* const tos_dynamic_module;
+}
+
+TOS_DYNAMIC_MODULE_EXPORT tos::Module* const tos_dynamic_module = &module;
+```
+
+宿主只接受绝对 UTF-8 `Path`，不搜索目录、不推断扩展名，也不支持热重载。`AddDynamicModule` 仅在
+`AppState::kCreated` 有效：加载器查找固定的 C 链接数据符号 `tos_dynamic_module`，缺失时返回
+`kNotFound`，空指针返回 `kInternal`，动态加载和模块注册错误保持原有状态码。App 借用全局对象，不会
+删除它；`Stop()` 照常调用其 `OnUnload`，而库会保留至 App 析构才卸载，届时由库自身销毁全局对象。插件
+必须与宿主使用相同的 tos 版本、编译器和 C++ 运行时。首版不验证 ABI，错误类型或符号导出会导致未定义
+行为；也不提供签名或沙箱，因此只能加载可信的本地原生代码。
+
+```cpp
+#include <tos/app/app.h>
+#include <tos/base/filesystem.h>
+
+tos::App app;
+auto plugin = tos::Path::Parse("/absolute/path/to/example-module.so");
+if (!plugin || !app.AddDynamicModule(plugin.value()) || !app.Start()) {
+    return 1;
+}
+return app.Stop() ? 0 : 1;
+```
+
 ## 系统信息
 
 `<tos/base/system.h>` 提供无状态的 `tos::System` 帮助函数。`OperatingSystem()` 返回编译目标的

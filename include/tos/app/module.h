@@ -2,9 +2,22 @@
 #define TOS_APP_MODULE_H_
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "tos/base/status.h"
+
+// Mark the declaration and definition of a global dynamic-module pointer for export.
+#ifdef _WIN32
+#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION __declspec(dllexport)
+#define TOS_DYNAMIC_MODULE_EXPORT __declspec(dllexport)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION __attribute__((visibility("default")))
+#define TOS_DYNAMIC_MODULE_EXPORT __attribute__((visibility("default"), used))
+#else
+#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION
+#define TOS_DYNAMIC_MODULE_EXPORT
+#endif
 
 namespace tos {
 
@@ -42,6 +55,15 @@ class Module {
     /// OnLoad succeeded. Cleanup continues after failures and exceptions become kInternal.
     [[nodiscard]] virtual Status OnUnload(Context&) = 0;
 };
+
+/// The required C-linkage data symbol exported by a dynamic module library.
+inline constexpr std::string_view kDynamicModuleSymbol = "tos_dynamic_module";
+
+/// The type used to resolve kDynamicModuleSymbol from a DynamicLibrary.
+///
+/// A plugin exports a `Module* const` whose value points to its own global Module object. The
+/// pointer is borrowed by App and must remain valid until the shared library is unloaded.
+using DynamicModuleExport = Module* const*;
 
 }  // namespace tos
 

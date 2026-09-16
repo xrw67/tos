@@ -16,6 +16,7 @@
 #include "tos/app/debug.h"
 #include "tos/app/module.h"
 #include "tos/app/service.h"
+#include "tos/base/filesystem.h"
 
 namespace {
 
@@ -157,6 +158,18 @@ tos::AppOptions QuietOptions() {
     return options;
 }
 
+tos::Path DynamicModulePath() {
+    return std::move(tos::Path::Parse(TOS_DYNAMIC_MODULE_TEST_MODULE)).value();
+}
+
+tos::Path NullDynamicModulePath() {
+    return std::move(tos::Path::Parse(TOS_DYNAMIC_MODULE_NULL_TEST_MODULE)).value();
+}
+
+tos::Path DynamicLibraryOnlyPath() {
+    return std::move(tos::Path::Parse(TOS_DYNAMIC_LIBRARY_TEST_MODULE)).value();
+}
+
 }  // namespace
 
 TEST(AppTest, DeterministicLifecycleAndReverseUnload) {
@@ -171,6 +184,43 @@ TEST(AppTest, DeterministicLifecycleAndReverseUnload) {
     EXPECT_EQ(app.state(), tos::AppState::kStopped);
     EXPECT_EQ(events, (std::vector<std::string>{"a.load", "z.load", "z.unload", "a.unload"}));
     EXPECT_TRUE(app.Stop());
+}
+
+TEST(AppTest, LoadsDynamicModuleAndRunsItsLifecycle) {
+    tos::App app(QuietOptions());
+    ASSERT_TRUE(app.AddDynamicModule(DynamicModulePath()));
+    ASSERT_TRUE(app.Start());
+
+    std::ostringstream output;
+    ASSERT_TRUE(app.debug().Execute("dynamic-module", output));
+    EXPECT_EQ(output.str(), "dynamic module loaded\n");
+
+    ASSERT_TRUE(app.Stop());
+    output.str("");
+    output.clear();
+    EXPECT_EQ(app.debug().Execute("dynamic-module", output).code(), tos::StatusCode::kNotFound);
+}
+
+TEST(AppTest, RejectsInvalidDynamicModuleLibraries) {
+    tos::App app(QuietOptions());
+    const tos::Path relative = std::move(tos::Path::Parse("dynamic-module")).value();
+    EXPECT_EQ(app.AddDynamicModule(relative).code(), tos::StatusCode::kInvalidArgument);
+
+    const auto missing = tos::Path::Parse(DynamicModulePath().utf8() + ".missing");
+    ASSERT_TRUE(missing);
+    EXPECT_FALSE(app.AddDynamicModule(missing.value()));
+    EXPECT_EQ(app.AddDynamicModule(DynamicLibraryOnlyPath()).code(), tos::StatusCode::kNotFound);
+    EXPECT_EQ(app.AddDynamicModule(NullDynamicModulePath()).code(), tos::StatusCode::kInternal);
+}
+
+TEST(AppTest, RejectsDuplicateAndLateDynamicModules) {
+    tos::App app(QuietOptions());
+    ASSERT_TRUE(app.AddDynamicModule(DynamicModulePath()));
+    EXPECT_EQ(app.AddDynamicModule(DynamicModulePath()).code(), tos::StatusCode::kAlreadyExists);
+    ASSERT_TRUE(app.Start());
+    EXPECT_EQ(app.AddDynamicModule(DynamicModulePath()).code(),
+              tos::StatusCode::kFailedPrecondition);
+    ASSERT_TRUE(app.Stop());
 }
 
 TEST(AppTest, ValidatesDependenciesAndNames) {

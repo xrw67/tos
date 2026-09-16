@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <memory>
 #include <mutex>
 #include <ostream>
 #include <stdexcept>
@@ -12,6 +13,7 @@
 #include "module_registry.h"
 #include "service_registry.h"
 #include "tos/app/debug.h"
+#include "tos/base/dynamic_library.h"
 #include "tos/base/format.h"
 namespace tos {
 
@@ -54,6 +56,41 @@ Status CallbackException(std::string_view module_name, std::string_view phase) {
 
 Status FirstFailure(Status current, Status candidate) {
     return current.ok() && !candidate.ok() ? std::move(candidate) : std::move(current);
+}
+
+class DynamicModule final : public Module {
+   public:
+    DynamicModule(DynamicLibrary library, Module* module) noexcept
+        : library_(std::move(library)), module_(module) {}
+
+    std::string Name() const override { return module_->Name(); }
+
+    std::vector<std::string> Dependencies() const override { return module_->Dependencies(); }
+
+    Status OnLoad(Context& context) override { return module_->OnLoad(context); }
+
+    Status OnUnload(Context& context) override { return module_->OnUnload(context); }
+
+   private:
+    DynamicLibrary library_;
+    Module* module_;
+};
+
+Result<std::unique_ptr<Module>> LoadDynamicModule(const Path& path) {
+    auto library_result = DynamicLibrary::Load(path);
+    if (!library_result) {
+        return std::move(library_result).status();
+    }
+    DynamicLibrary library = std::move(library_result).value();
+    auto exported = library.GetSymbol<DynamicModuleExport>(kDynamicModuleSymbol);
+    if (!exported) {
+        return std::move(exported).status();
+    }
+    Module* const module = *exported.value();
+    if (module == nullptr) {
+        return Status(StatusCode::kInternal, "dynamic module export must not be null");
+    }
+    return std::unique_ptr<Module>(new DynamicModule(std::move(library), module));
 }
 
 const char* AppStateName(AppState state) noexcept {
@@ -155,6 +192,21 @@ Status App::AddModule(std::unique_ptr<Module> module) {
         return InvalidState("AddModule");
     }
     return impl_->module_registry.Register(std::move(module));
+}
+
+Status App::AddDynamicModule(const Path& path) {
+    if (!impl_) {
+        return InvalidState("AddDynamicModule");
+    }
+    std::lock_guard<std::recursive_mutex> lock(impl_->mutex);
+    if (impl_->state != AppState::kCreated) {
+        return InvalidState("AddDynamicModule");
+    }
+    auto module = LoadDynamicModule(path);
+    if (!module) {
+        return std::move(module).status();
+    }
+    return impl_->module_registry.Register(std::move(module).value());
 }
 
 Status App::Start() {
