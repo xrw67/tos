@@ -896,6 +896,8 @@ class ManualMonotonicClock final : public IMonotonicClock {
     std::shared_ptr<State> state_;
 };
 
+inline int64_t NowUnixMs() { return Time::Now().UnixMilliseconds(); }
+
 }  // namespace tos
 
 #endif  // TOS_BASE_TIME_H_

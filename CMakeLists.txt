@@ -71,6 +71,7 @@ add_library(
     src/base/process.cpp
     src/base/registry.cpp
     src/base/scheduler.cpp
+    src/base/system.cpp
     src/base/thread_pool.cpp)
 add_library(tos::base ALIAS tosbase)
 target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

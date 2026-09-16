@@ -9,6 +9,7 @@ add_executable(tos_unit_tests
     fmt_test.cpp
     span_test.cpp
     string_test.cpp
+    system_test.cpp
     random_test.cpp
     process_test.cpp
     registry_test.cpp

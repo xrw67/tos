@@ -490,8 +490,9 @@ int main() {
 
 `<tos/base/dynamic_library.h>` 提供 `tos::DynamicLibrary`，用于按绝对 UTF-8 路径加载
 Linux、macOS 或 Windows 的动态库。它是 move-only 的 RAII 句柄，析构时尽力卸载；也可调用
-`Unload()` 提前释放。空路径和相对路径返回 `kInvalidArgument`，原生加载器失败会保留诊断信息。
-该接口不搜索当前目录、不拼接平台库名，也不提供插件注册或 ABI 校验。
+`Unload()` 提前释放。`Detach()` 放弃当前对象的所有权而不卸载，库将保持加载到进程退出或由独立的
+原生持有者卸载。空路径和相对路径返回 `kInvalidArgument`，原生加载器失败会保留诊断信息。该接口不
+搜索当前目录、不拼接平台库名，也不提供插件注册或 ABI 校验。
 
 `GetSymbol<T>()` 要求 `T` 为函数指针或数据指针类型。空名称、嵌入 NUL 的名称、未加载句柄和
 缺失导出分别返回 `kInvalidArgument`、`kFailedPrecondition` 和 `kNotFound`。返回的指针是借用值，
@@ -516,6 +517,33 @@ if (!increment || increment.value()(41) != 42) {
     return 1;
 }
 return library->Unload() ? 0 : 1;
+```
+
+## 系统信息
+
+`<tos/base/system.h>` 提供无状态的 `tos::System` 帮助函数。`OperatingSystem()` 返回编译目标的
+`"windows"`、`"macos"`、`"linux"` 或 `"unknown"`；`Architecture()` 返回 `"x86"`、`"x64"`、
+`"arm64"` 或 `"unknown"`；`CurrentProcessId()` 和
+`CurrentThreadId()` 返回平台原生的诊断/比较用标识符，无法取得时为零。`NumberOfProcessors()` 始终
+至少返回 1；Linux 优先遵守当前进程的 CPU affinity，macOS 与 Windows 分别查询在线或进程可用 CPU。
+
+`CurrentProcessPath()` 返回当前可执行文件的绝对 UTF-8 `Path`，`CurrentProcessDirectory()` 返回其父目录，
+`CurrentWorkingDirectory()` 则返回进程工作目录。路径查询的原生失败通过 `Result<Path>` 返回，未支持平台
+返回 `kUnimplemented`；字符串构造和路径转换的分配异常仍按 C++ 异常传播。所有 `System` 查询可由多个线程
+并发调用。`Sleep(milliseconds)` 阻塞调用线程至少指定的毫秒数；系统调度可能使实际等待更长。
+
+```cpp
+#include "tos/base/system.h"
+
+auto executable = tos::System::CurrentProcessPath();
+auto directory = tos::System::CurrentProcessDirectory();
+auto working_directory = tos::System::CurrentWorkingDirectory();
+if (!executable || !directory || !working_directory) {
+    return 1;
+}
+const std::size_t cpus = tos::System::NumberOfProcessors();
+tos::System::Sleep(10);
+return tos::System::CurrentProcessId() != 0 && cpus != 0 ? 0 : 1;
 ```
 
 ## Windows 注册表
