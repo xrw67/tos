@@ -14,10 +14,9 @@ namespace tos {
 
 /// Thread-safe, type-indexed synchronous event dispatcher.
 ///
-/// PublishSync dispatches in its caller's thread and only borrows the event for that call; it
-/// neither queues nor copies events. Subscription, publishing, resetting, and shutdown may run
-/// concurrently. Handlers must synchronize any shared state they access. Destroying an EventBus
-/// while another thread calls one of its members requires caller synchronization.
+/// PublishSync runs in the caller's thread and borrows, rather than queues or copies, the event.
+/// Operations may run concurrently, but handlers synchronize their own shared state. Destruction
+/// requires caller synchronization.
 class EventBus {
    private:
     class Entry;
@@ -35,14 +34,13 @@ class EventBus {
         Subscription& operator=(Subscription&& other) noexcept;
         ~Subscription() noexcept;
 
-        /// Removes this handler and waits for callbacks running on other threads. Reset from this
-        /// handler's own callback does not wait for itself. Repeated calls succeed. Concurrent
-        /// Reset or move operations on this same Subscription require caller synchronization.
-        /// Mutex exceptions propagate.
+        /// Removes this handler and waits for other-thread callbacks. A callback may reset itself
+        /// without waiting. Repeated calls succeed; concurrent mutation needs caller
+        /// synchronization. Mutex exceptions propagate.
         [[nodiscard]] Status Reset();
 
-        /// Returns true while this object still owns an active or resetting registration. Reading
-        /// while another thread modifies this same Subscription requires caller synchronization.
+        /// Returns true while this object owns an active or resetting registration. Concurrent
+        /// mutation requires caller synchronization.
         [[nodiscard]] explicit operator bool() const noexcept { return impl_ != nullptr; }
 
        private:
@@ -63,14 +61,12 @@ class EventBus {
     EventBus(EventBus&&) = delete;
     EventBus& operator=(EventBus&&) = delete;
 
-    /// Stops new subscriptions and publications, then waits for callbacks running on other
-    /// threads. A call from a handler does not wait for its own publication. It is idempotent.
-    /// Mutex exceptions propagate; destruction performs a best-effort shutdown and never throws.
+    /// Stops new work and waits for other-thread callbacks. A handler does not wait for its own
+    /// publication. Destruction performs best-effort shutdown and never throws.
     ~EventBus() noexcept;
 
-    /// Registers handler for the exact unqualified event type. The handler receives a borrowed
-    /// const Event reference only during PublishSync. A closed bus returns kFailedPrecondition.
-    /// Handler and implementation allocations may throw.
+    /// Registers a handler for the exact event type. It borrows Event during PublishSync; a closed
+    /// bus returns kFailedPrecondition. Handler and allocation exceptions propagate.
     template <typename Event, typename Handler>
     [[nodiscard]] Result<Subscription> Subscribe(Handler&& handler) {
         using StoredEvent = std::decay_t<Event>;
@@ -88,9 +84,8 @@ class EventBus {
         return Subscribe(std::type_index(typeid(StoredEvent)), std::move(callback));
     }
 
-    /// Invokes current handlers for the exact event type in registration order on the calling
-    /// thread. The event is borrowed and must outlive the call. No subscriber returns kNotFound;
-    /// a closed bus returns kFailedPrecondition. Handler exceptions propagate unchanged.
+    /// Invokes current exact-type handlers in registration order on the caller's thread. The event
+    /// must outlive the call. No subscriber returns kNotFound; handler exceptions propagate.
     template <typename Event>
     [[nodiscard]] Status PublishSync(const Event& event) {
         using StoredEvent = std::decay_t<Event>;
@@ -98,9 +93,8 @@ class EventBus {
         return PublishSync(std::type_index(typeid(StoredEvent)), std::addressof(event));
     }
 
-    /// Stops new subscriptions and publications and waits for callbacks running on other threads.
-    /// A publication already in progress may finish its snapshot. Repeated calls succeed. Mutex
-    /// exceptions propagate.
+    /// Stops new work and waits for other-thread callbacks. An active publication may finish its
+    /// snapshot; repeated calls succeed. Mutex exceptions propagate.
     [[nodiscard]] Status Shutdown();
 
    private:

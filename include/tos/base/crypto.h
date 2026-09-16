@@ -18,57 +18,40 @@ struct CryptoKey;
 struct CryptoAccess;
 }  // namespace detail
 
-/// Computes MD5 hashes using the OpenSSL 3 default provider. MD5 is retained
-/// only for legacy-protocol compatibility; new security designs must use a
-/// SHA-2 function below. Hash text is lowercase hexadecimal ASCII without a
-/// prefix or separators.
-///
-/// Md5File streams the file named by filename without retaining filename.
-/// Missing files return
-/// kNotFound, non-regular files return kFailedPrecondition, file I/O failures
-/// return a classified Status, unavailable OpenSSL support returns
-/// kUnimplemented, and other OpenSSL failures return kInternal. Md5Data and
-/// Md5String do not retain their input and return the hex hash directly. Their
-/// only failure representation is an empty string, used for a null data
-/// pointer with nonzero len or an OpenSSL failure; a valid MD5 hash is never
-/// empty. Output allocation and path-construction exceptions propagate. All
-/// three functions are safe to call concurrently.
+/// Computes lowercase hexadecimal MD5 hashes through OpenSSL's default provider.
+/// MD5 is only for legacy protocols; use SHA-2 for new security designs. Md5File streams its
+/// borrowed filename: missing files return kNotFound, non-regular files kFailedPrecondition,
+/// unavailable OpenSSL support kUnimplemented, other provider failures kInternal, and I/O failures
+/// a classified Status. Md5Data and Md5String borrow input and return an empty string only for a
+/// null nonempty buffer or provider failure. Path and allocation exceptions propagate. Thread-safe.
 [[nodiscard]] Result<std::string> Md5File(const std::string& filename);
 [[nodiscard]] std::string Md5Data(const char* data, std::size_t len);
 [[nodiscard]] std::string Md5String(std::string_view data);
 
-/// Computes SHA-1 hashes. SHA-1 is retained only for legacy-protocol
-/// compatibility; new security designs must use a SHA-2 function below. Its
-/// failure, exception, ownership, and thread-safety behavior matches Md5File,
-/// Md5Data, and Md5String respectively.
+/// Computes SHA-1 hashes with Md5File, Md5Data, and Md5String semantics.
+/// SHA-1 is only for legacy protocols; use SHA-2 for new security designs.
 [[nodiscard]] Result<std::string> Sha1File(const std::string& filename);
 [[nodiscard]] std::string Sha1Data(const char* data, std::size_t len);
 [[nodiscard]] std::string Sha1String(std::string_view data);
 
-/// Computes SHA-256 hashes. Its failure, exception, ownership, and
-/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+/// Computes SHA-256 hashes with Md5File, Md5Data, and Md5String semantics.
 [[nodiscard]] Result<std::string> Sha256File(const std::string& filename);
 [[nodiscard]] std::string Sha256Data(const char* data, std::size_t len);
 [[nodiscard]] std::string Sha256String(std::string_view data);
 
-/// Computes SHA-384 hashes. Its failure, exception, ownership, and
-/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+/// Computes SHA-384 hashes with Md5File, Md5Data, and Md5String semantics.
 [[nodiscard]] Result<std::string> Sha384File(const std::string& filename);
 [[nodiscard]] std::string Sha384Data(const char* data, std::size_t len);
 [[nodiscard]] std::string Sha384String(std::string_view data);
 
-/// Computes SHA-512 hashes. Its failure, exception, ownership, and
-/// thread-safety behavior matches Md5File, Md5Data, and Md5String respectively.
+/// Computes SHA-512 hashes with Md5File, Md5Data, and Md5String semantics.
 [[nodiscard]] Result<std::string> Sha512File(const std::string& filename);
 [[nodiscard]] std::string Sha512Data(const char* data, std::size_t len);
 [[nodiscard]] std::string Sha512String(std::string_view data);
 
-/// Move-only RSA private key backed by an OpenSSL EVP_PKEY.
-///
-/// The key owns its native representation. It accepts only unencrypted PEM
-/// input and does not erase caller-owned PEM text. Const crypto operations may
-/// run concurrently; moving, assigning, or destroying the same object requires
-/// caller synchronization. Construction and native allocation failures return
+/// Move-only RSA private key owning an OpenSSL EVP_PKEY.
+/// It accepts unencrypted PEM only and does not erase caller-owned text. Const operations are
+/// concurrent-safe; mutation and destruction need caller synchronization. Native failures return
 /// Result errors; standard-library allocation exceptions propagate.
 class RsaPrivateKey {
    public:
@@ -86,10 +69,9 @@ class RsaPrivateKey {
     friend struct detail::CryptoAccess;
 };
 
-/// Move-only RSA public key backed by an OpenSSL EVP_PKEY.
-/// It owns its native representation. Const crypto operations may run
-/// concurrently; moving, assigning, or destroying the same object requires
-/// caller synchronization. Native allocation failures return Result errors.
+/// Move-only RSA public key owning an OpenSSL EVP_PKEY.
+/// Const operations are concurrent-safe; mutation and destruction need caller synchronization.
+/// Native allocation failures return Result errors.
 class RsaPublicKey {
    public:
     RsaPublicKey(const RsaPublicKey&) = delete;
@@ -106,11 +88,9 @@ class RsaPublicKey {
     friend struct detail::CryptoAccess;
 };
 
-/// Move-only Ed25519 private key backed by an OpenSSL EVP_PKEY.
-/// It owns its native representation. Const crypto operations may run
-/// concurrently; moving, assigning, or destroying the same object requires
-/// caller synchronization. The same PEM and sensitive-memory limitations as
-/// RsaPrivateKey apply.
+/// Move-only Ed25519 private key owning an OpenSSL EVP_PKEY.
+/// Const operations are concurrent-safe; mutation and destruction need caller synchronization.
+/// It has the same PEM and sensitive-memory limitations as RsaPrivateKey.
 class Ed25519PrivateKey {
    public:
     Ed25519PrivateKey(const Ed25519PrivateKey&) = delete;
@@ -127,10 +107,9 @@ class Ed25519PrivateKey {
     friend struct detail::CryptoAccess;
 };
 
-/// Move-only Ed25519 public key backed by an OpenSSL EVP_PKEY.
-/// It owns its native representation. Const crypto operations may run
-/// concurrently; moving, assigning, or destroying the same object requires
-/// caller synchronization. Native allocation failures return Result errors.
+/// Move-only Ed25519 public key owning an OpenSSL EVP_PKEY.
+/// Const operations are concurrent-safe; mutation and destruction need caller synchronization.
+/// Native allocation failures return Result errors.
 class Ed25519PublicKey {
    public:
     Ed25519PublicKey(const Ed25519PublicKey&) = delete;

@@ -23,61 +23,47 @@ inline Status InvalidDebugCommand(std::string_view detail) {
 
 /// A custom embedded debug command handler.
 ///
-/// args contains the command's whitespace-delimited arguments, excluding the command name.
-/// The span and every string within it are borrowed for the duration of the call and must not be
-/// retained. output is borrowed for the duration of the call and is owned by Execute's caller.
-/// Handlers write their result or expected error text to output; handler and output exceptions
-/// propagate.
+/// args and output are borrowed for the call and must not be retained. args excludes the command
+/// name; handlers write results or error text. Handler and output exceptions propagate.
 using DebugHandler = std::function<void(const span<std::string>& args, std::ostream& output)>;
 
 /// Embedded text-command dispatcher.
 ///
-/// DebugController neither opens a listener nor performs terminal I/O. Hosts may adapt Execute to
-/// a terminal, GUI, or separately secured transport. Execute, RegisterHandler, and
-/// UnregisterHandler are safe concurrently. Every controller provides the built-in `help` command,
-/// which lists registered commands and their descriptions. Destroying this controller while another
-/// thread uses it requires caller synchronization. Allocation and mutex-locking exceptions
-/// propagate.
+/// This class performs no I/O; hosts adapt Execute to their transport. Its operations are safe
+/// concurrently and `help` lists registered commands. Destruction requires caller synchronization
+/// with other operations. Allocation and mutex exceptions propagate.
 class DebugController final {
    public:
-    /// Creates a command registry with the built-in `help` command. Allocation exceptions
-    /// propagate.
+    /// Creates a registry with the built-in `help` command. Allocation exceptions propagate.
     DebugController();
     DebugController(const DebugController&) = delete;
     DebugController& operator=(const DebugController&) = delete;
     DebugController(DebugController&&) = delete;
     DebugController& operator=(DebugController&&) = delete;
 
-    /// Destroys the command registry and never throws. Callers must synchronize destruction with
-    /// Execute, RegisterHandler, and UnregisterHandler.
+    /// Destroys the registry without throwing. Callers synchronize with other operations.
     ~DebugController() noexcept;
 
     /// Parses and executes one ASCII-whitespace-delimited command line.
     ///
-    /// Leading, trailing, and repeated ASCII whitespace are ignored. Quotes and backslashes are
-    /// ordinary bytes; no shell quoting or escaping is supported. Empty input or embedded NUL
-    /// returns kInvalidArgument. An unknown command returns kNotFound. A failed output stream
-    /// returns kUnavailable. Handler and output exceptions propagate. The caller owns output and
-    /// must synchronize it when shared by concurrent Execute calls.
+    /// ASCII whitespace delimits arguments; quotes and backslashes are ordinary bytes. Empty or
+    /// NUL input returns kInvalidArgument, unknown commands kNotFound, and failed output
+    /// kUnavailable. The caller owns and synchronizes shared output; exceptions propagate.
     [[nodiscard]] Status Execute(std::string_view command_line, std::ostream& output);
 
     /// Registers a custom command and its single-line description by exact, case-sensitive name.
     ///
-    /// command must be nonempty and contain neither ASCII whitespace nor NUL. description must be
-    /// nonempty and contain neither a line break nor NUL. handler must be nonempty. Invalid inputs
-    /// return kInvalidArgument; already registered names, including the built-in `help`, return
-    /// kAlreadyExists. The controller takes ownership of handler. Handler and registry allocation
-    /// exceptions propagate.
+    /// command and description must be nonempty single-line, NUL-free text; command cannot contain
+    /// ASCII whitespace. Invalid input returns kInvalidArgument and duplicate names, including
+    /// `help`, return kAlreadyExists. The controller owns handler; allocation exceptions propagate.
     [[nodiscard]] Status RegisterHandler(const std::string& command, const std::string& description,
                                          DebugHandler handler);
 
     /// Removes a custom command by exact, case-sensitive name.
     ///
-    /// Invalid names return kInvalidArgument; a missing command returns kNotFound; `help` returns
-    /// kFailedPrecondition because it is built in. Once this method returns, new Execute calls
-    /// cannot select the removed handler, but an already selected handler may continue without
-    /// waiting. The controller keeps that handler object alive until its in-flight call finishes;
-    /// callers remain responsible for synchronizing external state captured by the handler.
+    /// Invalid names return kInvalidArgument, missing commands kNotFound, and `help`
+    /// kFailedPrecondition. New calls cannot select a removed handler, but an active call may
+    /// finish; callers synchronize captured state. Allocation exceptions propagate.
     [[nodiscard]] Status UnregisterHandler(std::string_view command);
 
    private:

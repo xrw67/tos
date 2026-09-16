@@ -17,10 +17,9 @@ namespace tos {
 
 /// Describes a child process launched without invoking a shell.
 ///
-/// executable is resolved relative to working_directory, when provided, or the parent's current
-/// directory. It is never searched through PATH. Environment overrides replace inherited variables;
-/// a nullopt value removes a variable. POSIX variable names are case-sensitive; Windows compares
-/// ASCII variable names case-insensitively. Allocation exceptions propagate.
+/// executable is resolved relative to working_directory or the parent's current directory, never
+/// PATH. Overrides replace inherited variables; nullopt removes one. POSIX names are
+/// case-sensitive, Windows ASCII names case-insensitive. Allocation exceptions propagate.
 struct ProcessOptions {
     Path executable;
     std::vector<std::string> arguments;
@@ -54,11 +53,10 @@ struct CommandResult {
 
 /// An owning handle to a directly launched child process.
 ///
-/// Start inherits the parent's standard streams. Process is move-only and public operations on one
-/// object are not safe to call concurrently; callers must synchronize Wait, Terminate, moves, and
-/// destruction. The destructor best-effort terminates and reaps a still-running direct child. It
-/// does not terminate descendants. Operational failures return Status; allocation exceptions while
-/// preparing launch data or diagnostics propagate.
+/// Start inherits standard streams. Process is move-only; callers synchronize operations, moves,
+/// and destruction of the same object. Destruction best-effort terminates and reaps a running
+/// direct child, not descendants. Operational failures return Status; preparation and diagnostic
+/// allocation exceptions propagate.
 class [[nodiscard]] Process {
    public:
     /// Starts a process using executable and independent arguments, without a shell or PATH search.
@@ -92,12 +90,10 @@ class [[nodiscard]] Process {
 
 /// Runs a child with stdin closed and captures stdout and stderr independently.
 ///
-/// A nonzero program exit is represented by a successful CommandResult. A non-positive timeout,
-/// malformed environment data, or embedded NUL in an argument returns kInvalidArgument. Timeout
-/// terminates and reaps the direct child before returning kTimeout; exceeding either output limit
-/// does the same before returning kResourceExhausted. The function is safe to call concurrently
-/// with other instances, subject to the process-wide environment caveat in ProcessOptions.
-/// Allocation exceptions propagate.
+/// A nonzero exit still returns CommandResult. A non-positive timeout, malformed environment, or
+/// NUL argument returns kInvalidArgument. Timeout terminates and reaps the child before kTimeout;
+/// output-limit overflow does so before kResourceExhausted. Concurrent instances are safe, subject
+/// to ProcessOptions' process-global environment caveat. Allocation exceptions propagate.
 [[nodiscard]] Result<CommandResult> RunCommand(const ProcessOptions& process_options,
                                                const RunCommandOptions& options = {});
 

@@ -22,9 +22,8 @@ class Context;
 
 /// Move-only RAII borrow of a registered service.
 ///
-/// The handle does not own the service and must not outlive its Context. Its destructor returns
-/// the borrow automatically and suppresses release failures or exceptions. Call Reset() when the
-/// release status must be observed.
+/// The handle does not own the service or outlive its Context. Destruction returns the borrow and
+/// suppresses failures; call Reset() to observe them.
 template <typename T>
 class ServiceHandle final {
    public:
@@ -56,8 +55,8 @@ class ServiceHandle final {
     [[nodiscard]] T& operator*() const noexcept { return *service_; }
     [[nodiscard]] explicit operator bool() const noexcept { return service_ != nullptr; }
 
-    /// Returns this borrow to its Context. On failure the handle remains active for a retry.
-    /// Allocation and mutex exceptions propagate.
+    /// Returns this borrow. On failure it stays active for retry; allocation and mutex exceptions
+    /// propagate.
     [[nodiscard]] Status Reset();
 
    private:
@@ -80,12 +79,9 @@ class ServiceHandle final {
 
 /// Application services and infrastructure supplied to modules.
 ///
-/// This is an abstract interface. App supplies its own implementation, and alternate hosts may
-/// implement it for a different application environment. Context does not own services. Each
-/// non-empty GetService handle keeps one borrow active until Reset() or handle destruction, after
-/// which its owner may unregister and destroy the service. Implementations synchronize registry
-/// operations only; services provide their own synchronization. References returned by this
-/// interface remain valid only for the lifetime documented by the implementation.
+/// This abstract interface does not own services. GetService borrows block unregistration until
+/// reset or destruction. Implementations synchronize the registry, not services; reference
+/// lifetimes are implementation-defined.
 class Context {
    public:
     Context(const Context&) = delete;
@@ -94,38 +90,31 @@ class Context {
     Context& operator=(Context&&) = delete;
     virtual ~Context() noexcept = default;
 
-    /// Returns immutable configuration. The reference lifetime is defined by the implementation
-    /// and this accessor does not throw.
+    /// Returns immutable configuration; lifetime is implementation-defined and does not throw.
     [[nodiscard]] virtual const Config& config() const noexcept = 0;
 
-    /// Returns the logger. The reference lifetime is defined by the implementation and this
-    /// accessor does not throw. Logger operations remain safe for concurrent callers.
+    /// Returns the logger; lifetime is implementation-defined and does not throw.
     [[nodiscard]] virtual Logger& logger() noexcept = 0;
 
-    /// Returns the synchronous EventBus. The reference lifetime is defined by the implementation
-    /// and this accessor does not throw. EventBus operations are safe for concurrent callers.
+    /// Returns the synchronous EventBus; lifetime is implementation-defined and does not throw.
     [[nodiscard]] virtual EventBus& events() noexcept = 0;
 
-    /// Returns the shared executor. The reference lifetime is defined by the implementation. It
-    /// supports concurrent submissions but does not grant shutdown control.
+    /// Returns the shared executor; lifetime is implementation-defined, shutdown remains Context
+    /// owned, and the accessor does not throw.
     [[nodiscard]] virtual Executor& executor() noexcept = 0;
 
-    /// Returns the monotonic scheduler. The reference lifetime is defined by the implementation;
-    /// it supports concurrent scheduling but does not grant shutdown control.
+    /// Returns the monotonic scheduler; lifetime is implementation-defined, shutdown remains
+    /// Context owned, and the accessor does not throw.
     [[nodiscard]] virtual ScheduledExecutor& scheduler() noexcept = 0;
 
-    /// Registers a debug command handler and a single-line description owned by the caller.
-    /// Validation, duplicate-name, and concurrent execution behavior match
-    /// DebugController::RegisterHandler. Modules that capture their own state in a handler must
-    /// unregister it during OnUnload before that state is destroyed. Handler and registry
-    /// allocation exceptions propagate.
+    /// Registers a debug handler. Semantics match DebugController::RegisterHandler; modules must
+    /// unregister handlers before captured state is destroyed. Allocation exceptions propagate.
     [[nodiscard]] virtual Status RegisterDebugHandler(const std::string& command,
                                                       const std::string& description,
                                                       DebugHandler handler) = 0;
 
-    /// Removes a debug command handler by exact name. Validation, missing-name, and in-flight
-    /// execution behavior match DebugController::UnregisterHandler. Handler and registry
-    /// allocation exceptions propagate.
+    /// Removes a debug handler with DebugController::UnregisterHandler semantics. Allocation
+    /// exceptions propagate.
     [[nodiscard]] virtual Status UnregisterDebugHandler(std::string_view command) = 0;
 
     /// Registers a non-owning, unqualified Service pointer. Null returns kInvalidArgument; a
@@ -142,9 +131,8 @@ class Context {
         return RegisterServiceImpl(std::type_index(typeid(T)), service);
     }
 
-    /// Borrows the registered Service through a move-only RAII handle, or returns an empty handle
-    /// when the exact type is not registered. The handle must not outlive this Context. Mutex
-    /// exceptions propagate.
+    /// Borrows the exact service type, or returns an empty handle when absent. The handle must not
+    /// outlive this Context; mutex exceptions propagate.
     template <typename T>
     [[nodiscard]] ServiceHandle<T> GetService() const {
         static_assert(!std::is_const_v<T> && !std::is_volatile_v<T>,

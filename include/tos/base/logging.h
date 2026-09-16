@@ -101,16 +101,11 @@ struct LoggerOptions {
 
 /// Synchronous structured logger with console and rotating-file sinks.
 ///
-/// Logger owns all configured sinks and is neither copyable nor movable. All public member
-/// functions are safe to call concurrently. A supplied clock is shared and must itself support
-/// concurrent Now calls. Logger serializes its own writes, but cannot make writes from other
-/// processes or direct writers to the same stream or file atomic with its records.
-/// Destroying a Logger while another thread calls one of its members requires caller
-/// synchronization.
-///
-/// Operational failures from sink configuration, logging, flushing, and shutdown are returned as
-/// Status. Formatting, string, path, and allocation exceptions propagate. The destructor makes a
-/// best-effort flush and suppresses all failures because it has no return channel.
+/// Logger owns its sinks and is neither copyable nor movable. Its operations are concurrent-safe,
+/// except destruction needs caller synchronization; a supplied clock must support concurrent Now
+/// calls. It serializes its own writes, not writes from other processes or direct writers.
+/// Operational failures return Status; formatting, string, path, and allocation exceptions
+/// propagate. The destructor best-effort flushes, suppresses failures, and never throws.
 class Logger {
    public:
     /// Constructs a logger named "tos" with Info filtering and the default console sink.

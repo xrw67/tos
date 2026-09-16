@@ -23,9 +23,8 @@ class Path;
 enum class AppState { kCreated, kStarting, kRunning, kStopping, kStopped, kFailed };
 
 /// Configuration used to construct an App.
-/// The Config value is moved into the application; Logger and the shared ThreadPool are
-/// constructed from log and the thread pool fields respectively. version is diagnostic metadata
-/// only and does not affect application lifecycle behavior.
+/// Config is moved into the App; log and thread-pool fields configure its shared infrastructure.
+/// version is diagnostic metadata only.
 struct AppOptions {
     std::string name = "tos";
     /// Application version reported by the built-in debug `version` command.
@@ -39,11 +38,9 @@ struct AppOptions {
 
 /// Owns modules and coordinates their deterministic lifecycle.
 ///
-/// App is non-copyable and non-movable. AddModule is valid only in kCreated. Start and
-/// Stop are safe to call concurrently; transitions and module callbacks are serialized. Start
-/// validates the complete dependency graph before invoking callbacks, and rolls back loaded
-/// modules on failure. Stop continues cleanup after an error and returns the first failure.
-/// Destruction best-effort unloads active modules and never throws.
+/// App is non-copyable. Module changes are allowed only in kCreated; lifecycle calls are
+/// serialized and safe to make concurrently. Start validates dependencies and rolls back on
+/// failure; Stop continues cleanup and returns the first error. Destruction never throws.
 class [[nodiscard]] App {
    public:
     explicit App(AppOptions options = {});
@@ -59,16 +56,12 @@ class [[nodiscard]] App {
 
     /// Loads and registers one Module exported by a trusted dynamic library at an absolute path.
     ///
-    /// The library must export the C-linkage `tos_get_module()` function declared in
-    /// <tos/app/module.h>. It must return a non-null pointer to a Module object whose lifetime
-    /// extends until the library is unloaded, and must not throw. App borrows that object and
-    /// keeps the library loaded until App is destroyed; Stop() invokes OnUnload but does not
-    /// unload the library. Relative paths return kInvalidArgument; native loader errors, missing
-    /// exports, null pointers, and module-registration errors return their respective Status
-    /// values. This API is valid only in kCreated and is safe concurrently with other App
-    /// lifecycle calls. The plugin must use the same tos version, compiler, and C++ runtime as the
-    /// host. Loading untrusted native code is unsafe. Allocation exceptions while loading or
-    /// registering propagate.
+    /// The library must export the non-throwing C-linkage `tos_get_module()` declared in
+    /// <tos/app/module.h>, returning a non-null Module that remains valid until unload. App
+    /// borrows it and retains the library until destruction; Stop() only calls OnUnload. Relative
+    /// paths return kInvalidArgument; loader, export, null-pointer, and registration failures
+    /// return Status. This is valid only in kCreated. The plugin must share the host's tos version,
+    /// compiler, and C++ runtime; untrusted native code is unsafe. Allocation exceptions propagate.
     [[nodiscard]] Status AddDynamicModule(const Path& path);
 
     /// Loads every module in deterministic topological order.
@@ -84,17 +77,16 @@ class [[nodiscard]] App {
     [[nodiscard]] const Config& config() const noexcept;
     [[nodiscard]] Logger& logger() noexcept;
 
-    /// Returns the App-owned debug command dispatcher. App registers its standard `status` and
-    /// `log-level` commands during construction; callers may register, remove, or replace them
-    /// through this dispatcher. The reference remains valid while this App is alive.
+    /// Returns the App-owned dispatcher, including standard `status` and `log-level` commands.
+    /// The reference remains valid while this App lives.
     [[nodiscard]] DebugController& debug() noexcept;
 
-    /// Returns the App-owned shared executor. The reference remains valid while this App is alive
-    /// and supports concurrent submissions, but cannot be used to stop the shared ThreadPool.
+    /// Returns the App-owned executor. The reference remains valid while this App lives and cannot
+    /// stop its ThreadPool.
     [[nodiscard]] Executor& executor() noexcept;
 
-    /// Returns the App-owned monotonic scheduler. The reference remains valid while this App is
-    /// alive and supports concurrent scheduling, but cannot be used to stop it.
+    /// Returns the App-owned scheduler. The reference remains valid while this App lives and
+    /// cannot stop it.
     [[nodiscard]] ScheduledExecutor& scheduler() noexcept;
 
    private:
