@@ -24,9 +24,12 @@ enum class AppState { kCreated, kStarting, kRunning, kStopping, kStopped, kFaile
 
 /// Configuration used to construct an App.
 /// The Config value is moved into the application; Logger and the shared ThreadPool are
-/// constructed from log and the thread pool fields respectively.
+/// constructed from log and the thread pool fields respectively. version is diagnostic metadata
+/// only and does not affect application lifecycle behavior.
 struct AppOptions {
     std::string name = "tos";
+    /// Application version reported by the built-in debug `version` command.
+    std::string version = "unknown";
     Config config;
     LoggerOptions log;
     /// Zero uses DefaultThreadPoolWorkerCount().
@@ -56,15 +59,16 @@ class [[nodiscard]] App {
 
     /// Loads and registers one Module exported by a trusted dynamic library at an absolute path.
     ///
-    /// The library must export the C-linkage `tos_dynamic_module` data symbol declared in
-    /// <tos/app/module.h> as a non-null `Module* const` pointing to its own global Module
-    /// object. App borrows that object and keeps the library loaded until App is destroyed; Stop()
-    /// invokes OnUnload but does not unload the library. Relative paths return kInvalidArgument;
-    /// native loader errors, missing exports, null pointers, and module-registration errors return
-    /// their respective Status values. This API is valid only in kCreated and is safe concurrently
-    /// with other App lifecycle calls. The plugin must use the same tos version, compiler, and C++
-    /// runtime as the host. Loading untrusted native code is unsafe. Allocation exceptions while
-    /// loading or registering propagate.
+    /// The library must export the C-linkage `tos_get_module()` function declared in
+    /// <tos/app/module.h>. It must return a non-null pointer to a Module object whose lifetime
+    /// extends until the library is unloaded, and must not throw. App borrows that object and
+    /// keeps the library loaded until App is destroyed; Stop() invokes OnUnload but does not
+    /// unload the library. Relative paths return kInvalidArgument; native loader errors, missing
+    /// exports, null pointers, and module-registration errors return their respective Status
+    /// values. This API is valid only in kCreated and is safe concurrently with other App
+    /// lifecycle calls. The plugin must use the same tos version, compiler, and C++ runtime as the
+    /// host. Loading untrusted native code is unsafe. Allocation exceptions while loading or
+    /// registering propagate.
     [[nodiscard]] Status AddDynamicModule(const Path& path);
 
     /// Loads every module in deterministic topological order.

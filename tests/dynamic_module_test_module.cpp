@@ -15,7 +15,8 @@ class DynamicModuleTestModule final : public tos::Module {
 
     tos::Status OnLoad(tos::Context& context) override {
         return context.RegisterDebugHandler(
-            "dynamic-module", [](const tos::span<std::string>&, std::ostream& output) {
+            "dynamic-module", "Report that the dynamic module is loaded.",
+            [](const tos::span<std::string>&, std::ostream& output) {
                 output << "dynamic module loaded\n";
             });
     }
@@ -25,12 +26,9 @@ class DynamicModuleTestModule final : public tos::Module {
     }
 };
 
-DynamicModuleTestModule module;
-
 }  // namespace
 
-extern "C" {
-TOS_DYNAMIC_MODULE_EXPORT_DECLARATION extern tos::Module* const tos_dynamic_module;
+extern "C" TOS_DYNAMIC_MODULE_EXPORT tos::Module* tos_get_module() noexcept {
+    static DynamicModuleTestModule module;
+    return &module;
 }
-
-TOS_DYNAMIC_MODULE_EXPORT tos::Module* const tos_dynamic_module = &module;

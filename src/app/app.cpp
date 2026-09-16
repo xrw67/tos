@@ -20,6 +20,7 @@ namespace tos {
 struct App::Impl {
     explicit Impl(AppOptions options)
         : name(std::move(options.name)),
+          version(std::move(options.version)),
           config(std::move(options.config)),
           logger(std::move(options.log)),
           executor(options.thread_pool_worker_count, options.thread_pool_queue_capacity),
@@ -28,6 +29,7 @@ struct App::Impl {
                                    debug)) {}
 
     std::string name;
+    std::string version;
     Config config;
     Logger logger;
     DebugController debug;
@@ -86,9 +88,9 @@ Result<std::unique_ptr<Module>> LoadDynamicModule(const Path& path) {
     if (!exported) {
         return std::move(exported).status();
     }
-    Module* const module = *exported.value();
+    Module* const module = exported.value()();
     if (module == nullptr) {
-        return Status(StatusCode::kInternal, "dynamic module export must not be null");
+        return Status(StatusCode::kInternal, "dynamic module getter returned null");
     }
     return std::unique_ptr<Module>(new DynamicModule(std::move(library), module));
 }
@@ -130,22 +132,39 @@ void WriteDebugError(std::ostream& output, const Status& status) {
     tos::println(output, "error={}", status.ToString());
 }
 
-Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& executor) {
-    Status status = debug.RegisterHandler(
-        "status", [&app, &executor](const span<std::string>& args, std::ostream& output) {
-            if (!args.empty()) {
-                WriteDebugError(
-                    output, debug_detail::InvalidDebugCommand("status does not accept arguments"));
-                return;
-            }
-            WriteDebugStatus(app, executor, output);
-        });
+Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& executor,
+                                const std::string& name, const std::string& version,
+                                const Config& config) {
+    Status status =
+        debug.RegisterHandler("version", "Print the application name and version.",
+                              [&name, &version](const span<std::string>&, std::ostream& output) {
+                                  tos::println(output, "name={}", name);
+                                  tos::println(output, "version={}", version);
+                              });
+    if (!status) {
+        return status;
+    }
+
+    status = debug.RegisterHandler("config", "Print configuration as compact JSON.",
+                                   [&config](const span<std::string>&, std::ostream& output) {
+                                       tos::println(output, "{}", config.Dump());
+                                   });
+    if (!status) {
+        return status;
+    }
+
+    status =
+        debug.RegisterHandler("status", "Print application and executor status.",
+                              [&app, &executor](const span<std::string>&, std::ostream& output) {
+                                  WriteDebugStatus(app, executor, output);
+                              });
     if (!status) {
         return status;
     }
 
     return debug.RegisterHandler(
-        "log-level", [&app, &executor](const span<std::string>& args, std::ostream& output) {
+        "log-level", "Set the minimum log level.",
+        [&app, &executor](const span<std::string>& args, std::ostream& output) {
             if (args.size() != 1) {
                 WriteDebugError(output, debug_detail::InvalidDebugCommand(
                                             "log-level requires exactly one argument"));
@@ -168,7 +187,8 @@ Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& ex
 }  // namespace
 
 App::App(AppOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {
-    Status registered = RegisterAppDebugHandlers(*this, impl_->debug, impl_->executor);
+    Status registered = RegisterAppDebugHandlers(*this, impl_->debug, impl_->executor, impl_->name,
+                                                 impl_->version, impl_->config);
     if (!registered) {
         throw std::logic_error(registered.ToString());
     }

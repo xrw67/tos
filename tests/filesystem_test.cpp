@@ -1,7 +1,5 @@
 #include "tos/base/filesystem.h"
 
-#include <atomic>
-#include <cstdint>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <stdexcept>
@@ -9,33 +7,10 @@
 #include <utility>
 #include <vector>
 
+#include "test_util.h"
+
 namespace tos {
 namespace {
-
-class TemporaryDirectory {
-   public:
-    TemporaryDirectory() {
-        path_ = std::filesystem::temp_directory_path() /
-                ("tos-filesystem-test-" + std::to_string(next_id_.fetch_add(1)));
-        std::filesystem::create_directories(path_);
-    }
-
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    ~TemporaryDirectory() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path_, ignored);
-    }
-
-    const std::filesystem::path& path() const noexcept { return path_; }
-
-   private:
-    static std::atomic<std::uint64_t> next_id_;
-    std::filesystem::path path_;
-};
-
-std::atomic<std::uint64_t> TemporaryDirectory::next_id_{0};
 
 Path FromNativePath(const std::filesystem::path& path) {
     auto parsed = Path::Parse(path.u8string());
@@ -89,12 +64,12 @@ TEST(PathTest, ProvidesLexicalOperationsForUnicodePaths) {
               ParsePath("two"));
     EXPECT_FALSE(root.is_absolute());
 
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     EXPECT_TRUE(FromNativePath(directory.path()).is_absolute());
 }
 
 TEST(FilesystemTest, ReadsWritesAndCreatesUtf8Directories) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const Path base = FromNativePath(directory.path());
     const Path nested = base.Join(ParsePath(u8"目录")).Join(ParsePath("nested"));
     const Path file = nested.Join(ParsePath(u8"内容.txt"));
@@ -115,7 +90,7 @@ TEST(FilesystemTest, ReadsWritesAndCreatesUtf8Directories) {
 }
 
 TEST(FilesystemTest, ListsEntriesInUtf8ByteOrderAndReportsMetadata) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const Path base = FromNativePath(directory.path());
     const Path first = base.Join(ParsePath("a.txt"));
     const Path second = base.Join(ParsePath("z.txt"));
@@ -143,7 +118,7 @@ TEST(FilesystemTest, ListsEntriesInUtf8ByteOrderAndReportsMetadata) {
 }
 
 TEST(FilesystemTest, ReportsSymbolicLinksWithoutFollowingThem) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const std::filesystem::path target = directory.path() / "target";
     const std::filesystem::path link = directory.path() / "link";
     ASSERT_TRUE(WriteTextFile(FromNativePath(target), "target"));
@@ -160,7 +135,7 @@ TEST(FilesystemTest, ReportsSymbolicLinksWithoutFollowingThem) {
 }
 
 TEST(FilesystemTest, AtomicallyWritesAndCleansTemporaryFiles) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const Path target = FromNativePath(directory.path() / "atomic.txt");
     ASSERT_TRUE(WriteTextFile(target, "old"));
     ASSERT_TRUE(WriteTextFileAtomic(target, "replacement"));
@@ -181,7 +156,7 @@ TEST(FilesystemTest, AtomicallyWritesAndCleansTemporaryFiles) {
 }
 
 TEST(FilesystemTest, RemovesAndRenamesWithStrictFailureSemantics) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const Path base = FromNativePath(directory.path());
     const Path source = base.Join(ParsePath("source.txt"));
     const Path destination = base.Join(ParsePath("destination.txt"));
@@ -220,7 +195,7 @@ TEST(FilesystemTest, RemovesAndRenamesWithStrictFailureSemantics) {
 
 #ifndef _WIN32
 TEST(FilesystemTest, MapsPermissionDeniedWhenTheEnvironmentEnforcesPermissions) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-filesystem-test-");
     const std::filesystem::path blocked_native = directory.path() / "blocked";
     std::filesystem::create_directory(blocked_native);
     const Path blocked = FromNativePath(blocked_native);

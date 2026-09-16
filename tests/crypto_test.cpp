@@ -1,6 +1,5 @@
 #include "tos/base/crypto.h"
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -9,6 +8,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include "test_util.h"
 
 namespace tos {
 namespace {
@@ -42,31 +43,6 @@ span<const std::uint8_t> View(const std::vector<std::uint8_t>& bytes) {
     return {bytes.data(), bytes.size()};
 }
 
-class TemporaryDirectory {
-   public:
-    TemporaryDirectory() {
-        path_ = std::filesystem::temp_directory_path() /
-                ("tos-crypto-test-" + std::to_string(next_id_.fetch_add(1)));
-        std::filesystem::create_directories(path_);
-    }
-
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    ~TemporaryDirectory() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path_, ignored);
-    }
-
-    const std::filesystem::path& path() const noexcept { return path_; }
-
-   private:
-    static std::atomic<std::uint64_t> next_id_;
-    std::filesystem::path path_;
-};
-
-std::atomic<std::uint64_t> TemporaryDirectory::next_id_{0};
-
 TEST(CryptoHashTest, MatchesKnownDigestVectorsForDataAndStrings) {
     const struct {
         std::string (*data)(const char*, std::size_t);
@@ -92,7 +68,7 @@ TEST(CryptoHashTest, MatchesKnownDigestVectorsForDataAndStrings) {
 }
 
 TEST(CryptoHashTest, HashesFilesAndReportsFileErrors) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-crypto-test-");
     const std::filesystem::path file = directory.path() / "payload.bin";
     const std::string content(20 * 1024, 'x');
     {

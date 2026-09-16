@@ -108,11 +108,11 @@ if (!app.Start()) return 1;
 app.Stop();
 ```
 
-`<tos/app/debug.h>` 提供嵌入式的文本命令 `DebugController`，供宿主把受控调试能力接入自己的终端、GUI 或安全传输层。它不会自行监听网络或 IPC、读取标准输入、执行任意代码、停止应用或暂停任务。`App` 自己拥有一个控制器，可通过 `app.debug()` 取得；它在构造时以普通处理器注册 `status` 和 `log-level`。`Execute()`、注册和注销可并发调用；销毁独立控制器或 App 时仍须由调用方等待这些调用结束。调用方拥有传入 `Execute()` 的输出流，多个并发调用共享同一流时须自行同步。
+`<tos/app/debug.h>` 提供嵌入式的文本命令 `DebugController`，供宿主把受控调试能力接入自己的终端、GUI 或安全传输层。它不会自行监听网络或 IPC、读取标准输入、执行任意代码、停止应用或暂停任务。每个 `DebugController` 都内置不可替换的 `help`，按命令名排序列出当时已注册的命令及单行描述。`App` 自己拥有一个控制器，可通过 `app.debug()` 取得；它在构造时注册 `version`、`config`、`status` 和 `log-level`。`Execute()`、注册和注销可并发调用；销毁独立控制器或 App 时仍须由调用方等待这些调用结束。调用方拥有传入 `Execute()` 的输出流，多个并发调用共享同一流时须自行同步。
 
-`Execute(command_line, output)` 按 ASCII 空白分词，忽略前后与重复空白；引号和反斜杠是普通字节，不支持 shell 转义，空输入或嵌入 NUL 返回 `kInvalidArgument`。未知命令返回 `kNotFound`，已失败的 output 或处理器写入后失败返回 `kUnavailable`。App 默认注册的 `status` 不接受参数，向 output 写入带结尾换行的稳定 `key=value` 文本：`app_state`、`log_level` 与 `executor.*` 线程池统计。App 默认注册的 `log-level <trace|debug|info|warning|error|critical|off>` 调整最低日志等级并写入更新后的相同快照；其参数或日志器错误写为 `error=<Status::ToString()>\n`。调试输出不会导出配置、模块、服务、调度器任务或其他可能敏感的运行时内容。
+`Execute(command_line, output)` 按 ASCII 空白分词，忽略前后与重复空白；引号和反斜杠是普通字节，不支持 shell 转义，空输入或嵌入 NUL 返回 `kInvalidArgument`。未知命令返回 `kNotFound`，已失败的 output 或处理器写入后失败返回 `kUnavailable`。`help` 不接受参数，不能注册或注销；`version` 输出 `AppOptions::name` 和 `AppOptions::version`（默认 `unknown`）；`config` 输出完整紧凑 JSON 配置。`config` 不会脱敏，宿主不得将其接入不受信任的终端或传输通道。`status` 不接受参数，向 output 写入带结尾换行的稳定 `key=value` 文本：`app_state`、`log_level` 与 `executor.*` 线程池统计。`log-level <trace|debug|info|warning|error|critical|off>` 调整最低日志等级并写入更新后的相同快照；其参数或日志器错误写为 `error=<Status::ToString()>\n`。
 
-宿主可使用 `RegisterHandler()` 注册大小写敏感的命令；模块通过 `Context::RegisterDebugHandler()` 和 `Context::UnregisterDebugHandler()` 使用同一注册表。处理器签名为 `void(const tos::span<std::string>& args, std::ostream& output)`；`args` 是不含命令名的借用参数视图，output 是借用流，处理器可写入任意结果或错误文本。命令名不能为空，也不能包含 ASCII 空白或 NUL；重复名称返回 `kAlreadyExists`。`status` 和 `log-level` 没有特殊保留语义，先注销即可替换。注销立即禁止后续调用选择该处理器，但不等待已开始的调用；控制器会保活已选择的处理器对象，处理器捕获的外部状态仍须由宿主同步。
+宿主可使用 `RegisterHandler(command, description, handler)` 注册大小写敏感的命令；模块通过 `Context::RegisterDebugHandler()` 和 `Context::UnregisterDebugHandler()` 使用同一注册表。描述不能为空，且不能包含换行或 NUL。处理器签名为 `void(const tos::span<std::string>& args, std::ostream& output)`；`args` 是不含命令名的借用参数视图，output 是借用流，处理器可写入任意结果或错误文本。命令名不能为空，也不能包含 ASCII 空白或 NUL；重复名称返回 `kAlreadyExists`。除 `help` 外的所有命令均没有特殊保留语义，先注销即可替换。注销立即禁止后续调用选择该处理器，但不等待已开始的调用；控制器会保活已选择的处理器对象，处理器捕获的外部状态仍须由宿主同步。
 
 ```cpp
 #include <tos/app/debug.h>
@@ -120,10 +120,11 @@ app.Stop();
 #include <sstream>
 
 tos::DebugController& debug = app.debug();
-const tos::Status registered = debug.RegisterHandler("echo", [](const tos::span<std::string>& args,
-                                                                  std::ostream& output) {
-    output << (args.empty() ? std::string("empty") : args.front());
-});
+const tos::Status registered = debug.RegisterHandler(
+    "echo", "Print the first argument.",
+    [](const tos::span<std::string>& args, std::ostream& output) {
+        output << (args.empty() ? std::string("empty") : args.front());
+    });
 std::ostringstream snapshot;
 std::ostringstream enabled;
 std::ostringstream echoed;
@@ -138,7 +139,8 @@ if (!registered || !debug.Execute("status", snapshot) ||
 `Execute("log-level debug", output)` 等文本命令；自定义能力通过 `RegisterHandler()` 与
 `UnregisterHandler()` 接入。文本 API 的早期 `Result<std::string> Execute(command_line)` 与返回
 `Result<std::string>` 的处理器已替换为 `Status Execute(command_line, output)` 和向 output 写入的
-void 处理器。`DebugController` 不再接受 `App&` 构造参数，应用标准命令改由 `app.debug()` 提供。
+void 处理器。`RegisterHandler()` 现在还要求一条非空、单行描述，供内置 `help` 输出；
+`DebugController` 不再接受 `App&` 构造参数，应用标准命令改由 `app.debug()` 提供。
 
 0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
 
@@ -520,7 +522,7 @@ return library->Unload() ? 0 : 1;
 ```
 
 `<tos/app/module.h>` 与 `tos::App::AddDynamicModule(const Path&)` 在 Application
-框架中提供单模块动态库加载。动态库必须定义一个全局 `tos::Module` 对象，并导出其不可改写的指针：
+框架中提供单模块动态库加载。动态库必须导出一个返回其 `tos::Module` 对象的函数：
 
 ```cpp
 #include <tos/app/context.h>
@@ -536,23 +538,21 @@ class ExampleModule final : public tos::Module {
     tos::Status OnUnload(tos::Context&) override { return tos::Status::Ok(); }
 };
 
-ExampleModule module;
-
 }  // namespace
 
-extern "C" {
-TOS_DYNAMIC_MODULE_EXPORT_DECLARATION extern tos::Module* const tos_dynamic_module;
+extern "C" TOS_DYNAMIC_MODULE_EXPORT tos::Module* tos_get_module() noexcept {
+    static ExampleModule module;
+    return &module;
 }
-
-TOS_DYNAMIC_MODULE_EXPORT tos::Module* const tos_dynamic_module = &module;
 ```
 
 宿主只接受绝对 UTF-8 `Path`，不搜索目录、不推断扩展名，也不支持热重载。`AddDynamicModule` 仅在
-`AppState::kCreated` 有效：加载器查找固定的 C 链接数据符号 `tos_dynamic_module`，缺失时返回
-`kNotFound`，空指针返回 `kInternal`，动态加载和模块注册错误保持原有状态码。App 借用全局对象，不会
-删除它；`Stop()` 照常调用其 `OnUnload`，而库会保留至 App 析构才卸载，届时由库自身销毁全局对象。插件
-必须与宿主使用相同的 tos 版本、编译器和 C++ 运行时。首版不验证 ABI，错误类型或符号导出会导致未定义
-行为；也不提供签名或沙箱，因此只能加载可信的本地原生代码。
+`AppState::kCreated` 有效：加载器查找并调用固定的 C 链接函数 `tos_get_module`，缺失时返回
+`kNotFound`，空指针返回 `kInternal`，动态加载和模块注册错误保持原有状态码。getter 必须为 `noexcept`；
+若其或函数内 static 对象构造抛出异常，进程会终止。App 借用 getter 返回的对象，不会删除它；`Stop()`
+照常调用其 `OnUnload`，而库会保留至 App 析构才卸载，届时由库销毁函数内 static 对象。插件必须与宿主使用
+相同的 tos 版本、编译器和 C++ 运行时。首版不验证 ABI，错误类型或符号导出会导致未定义行为；也不提供签名
+或沙箱，因此只能加载可信的本地原生代码。
 
 ```cpp
 #include <tos/app/app.h>
@@ -707,6 +707,8 @@ if (deadline) {
 `<tos/base/config.h>` 提供 JSON/YAML 的只读配置树。`Config::Parse()` 仅接受 object/mapping 根节点，并把 JSON 与 YAML 解析失败、YAML 非字符串 mapping key、带 tag 的 YAML 节点、路径和类型错误转换为 `Status`：缺失路径为 `kNotFound`，其余预期输入错误为 `kInvalidArgument`。错误信息包含输入来源和（读取错误时）完整点路径。YAML 锚点或别名只要能展开为此树即可使用。分配失败仍按 C++ 异常传播。
 
 路径使用 `.` 分隔 object key，并可在数组处使用十进制索引；字面 `.` 和反斜杠分别写成 `\\.` 与 `\\\\`。键名保持大小写敏感。`Has()` 是便捷存在性检查，缺失或路径格式错误都返回 `false`；需要区分错误时使用对应的 `Get*` 接口。`GetBool`、`GetInt64`、`GetDouble` 和 `GetString` 都要求节点类型精确匹配；`GetUint64` 还接受可无损表示的非负有符号整数，不进行字符串、布尔和浮点转换。
+
+`ToJson()` 返回完整快照的紧凑 JSON 文本，不脱敏任何键或值；序列化和字符串分配异常直接传播。它适用于受信任的诊断或导出路径，不能直接暴露给非受信任调用方。
 
 ```cpp
 #include "tos/base/config.h"

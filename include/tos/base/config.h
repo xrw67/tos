@@ -131,6 +131,13 @@ class Config {
         return GetExact<std::string>(path, ConfigValueType::kString);
     }
 
+    /// Returns the complete configuration as compact JSON text.
+    ///
+    /// The returned text represents the immutable snapshot exactly, including all keys and values.
+    /// This method does not redact sensitive values. JSON serialization and allocation exceptions
+    /// propagate.
+    [[nodiscard]] std::string Dump() const { return data_->document.dump(4); }
+
     /// Returns a new configuration by deeply overlaying object values from overlay.
     /// Arrays, nulls, scalars, and mismatched node types are replaced wholesale.
     /// Neither input changes; allocation exceptions while copying the tree propagate.

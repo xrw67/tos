@@ -12,10 +12,11 @@ int main() {
     options.log.console = false;
     tos::App app(std::move(options));
     tos::DebugController& debug = app.debug();
-    if (!app.Start() || !debug.RegisterHandler(
-                            "echo", [](const tos::span<std::string>& args, std::ostream& output) {
-                                output << (args.empty() ? std::string("empty") : args.front());
-                            })) {
+    if (!app.Start() ||
+        !debug.RegisterHandler("echo", "Print the first argument.",
+                               [](const tos::span<std::string>& args, std::ostream& output) {
+                                   output << (args.empty() ? std::string("empty") : args.front());
+                               })) {
         return 1;
     }
 

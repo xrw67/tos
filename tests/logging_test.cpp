@@ -1,7 +1,5 @@
 #include "tos/base/logging.h"
 
-#include <atomic>
-#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -16,35 +14,11 @@
 #include <utility>
 #include <vector>
 
+#include "test_util.h"
 #include "tos/base/json.h"
 
 namespace tos {
 namespace {
-
-class TemporaryDirectory {
-   public:
-    TemporaryDirectory() {
-        path_ = std::filesystem::temp_directory_path() /
-                ("tos-logging-test-" + std::to_string(next_id_.fetch_add(1)));
-        std::filesystem::create_directories(path_);
-    }
-
-    TemporaryDirectory(const TemporaryDirectory&) = delete;
-    TemporaryDirectory& operator=(const TemporaryDirectory&) = delete;
-
-    ~TemporaryDirectory() {
-        std::error_code ignored;
-        std::filesystem::remove_all(path_, ignored);
-    }
-
-    const std::filesystem::path& path() const noexcept { return path_; }
-
-   private:
-    static std::atomic<std::uint64_t> next_id_;
-    std::filesystem::path path_;
-};
-
-std::atomic<std::uint64_t> TemporaryDirectory::next_id_{0};
 
 Path LogPath(const std::filesystem::path& path) {
     auto parsed = Path::Parse(path.u8string());
@@ -124,7 +98,7 @@ TEST(LoggerTest, FiltersLevelsAndFormatsConsoleRecords) {
 }
 
 TEST(LoggerTest, WritesTypedJsonFieldsWithoutChangingValues) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-logging-test-");
     const std::filesystem::path path = directory.path() / "typed.jsonl";
     auto clock = std::make_shared<ManualClock>(Time::FromUnixNanoseconds(123400000));
     Logger logger(FileLoggerOptions(clock));
@@ -153,7 +127,7 @@ TEST(LoggerTest, WritesTypedJsonFieldsWithoutChangingValues) {
 }
 
 TEST(LoggerTest, RotatesByProspectiveSizeAndRetainsConfiguredArchives) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-logging-test-");
     const std::filesystem::path path = directory.path() / "rotate.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
     ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 150, 2}));
@@ -181,7 +155,7 @@ TEST(LoggerTest, RotatesByProspectiveSizeAndRetainsConfiguredArchives) {
 }
 
 TEST(LoggerTest, RejectsInvalidFileOptionsAndReportsFileOpenFailures) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-logging-test-");
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
 
     const Status invalid =
@@ -195,7 +169,7 @@ TEST(LoggerTest, RejectsInvalidFileOptionsAndReportsFileOpenFailures) {
 }
 
 TEST(LoggerTest, SerializesConcurrentRecordsWithoutCorruptingJsonLines) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-logging-test-");
     const std::filesystem::path path = directory.path() / "concurrent.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
     ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 1024 * 1024, 2}));
@@ -227,7 +201,7 @@ TEST(LoggerTest, SerializesConcurrentRecordsWithoutCorruptingJsonLines) {
 }
 
 TEST(LoggerTest, FlushesOnShutdownRejectsLaterWritesAndDestructorFlushes) {
-    TemporaryDirectory directory;
+    test::TemporaryDirectory directory("tos-logging-test-");
     const std::filesystem::path path = directory.path() / "shutdown.jsonl";
     Logger logger(FileLoggerOptions(std::make_shared<ManualClock>()));
     ASSERT_TRUE(logger.AddRotatingFileSink({LogPath(path), 4096, 1}));

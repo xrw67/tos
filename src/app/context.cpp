@@ -27,8 +27,9 @@ class AppContext final : public Context {
     EventBus& events() noexcept override { return events_; }
     Executor& executor() noexcept override { return executor_; }
     ScheduledExecutor& scheduler() noexcept override { return scheduler_; }
-    Status RegisterDebugHandler(const std::string& command, DebugHandler handler) override {
-        return debug_.RegisterHandler(command, std::move(handler));
+    Status RegisterDebugHandler(const std::string& command, const std::string& description,
+                                DebugHandler handler) override {
+        return debug_.RegisterHandler(command, description, std::move(handler));
     }
     Status UnregisterDebugHandler(std::string_view command) override {
         return debug_.UnregisterHandler(command);

@@ -138,7 +138,8 @@ class DebugHandlerModule final : public tos::Module {
 
     tos::Status OnLoad(tos::Context& context) override {
         return context.RegisterDebugHandler(
-            "module-command", [this](const tos::span<std::string>& args, std::ostream& output) {
+            "module-command", "Record the command argument count.",
+            [this](const tos::span<std::string>& args, std::ostream& output) {
                 ++invocations_;
                 output << "argument_count=" << args.size() << '\n';
             });
@@ -350,11 +351,18 @@ TEST(AppTest, ModulesRegisterAndRemoveDebugHandlersThroughContext) {
     EXPECT_EQ(output.str(), "argument_count=2\n");
     EXPECT_EQ(invocations.load(), 1);
 
+    output.str("");
+    output.clear();
+    ASSERT_TRUE(app.debug().Execute("help", output));
+    EXPECT_NE(output.str().find("module-command: Record the command argument count.\n"),
+              std::string::npos);
+
     ASSERT_TRUE(app.Stop());
     output.str("");
     output.clear();
     EXPECT_EQ(app.debug().Execute("module-command", output).code(), tos::StatusCode::kNotFound);
-    EXPECT_EQ(output.str(), "");
+    ASSERT_TRUE(app.debug().Execute("help", output));
+    EXPECT_EQ(output.str().find("module-command:"), std::string::npos);
 }
 
 TEST(AppTest, SharedExecutorIsAvailableBeforeStartAndDrainsAfterModuleUnload) {

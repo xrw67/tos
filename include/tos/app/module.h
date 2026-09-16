@@ -7,15 +7,12 @@
 
 #include "tos/base/status.h"
 
-// Mark the declaration and definition of a global dynamic-module pointer for export.
+// Marks a dynamic-module getter function for export.
 #ifdef _WIN32
-#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION __declspec(dllexport)
 #define TOS_DYNAMIC_MODULE_EXPORT __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
-#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION __attribute__((visibility("default")))
-#define TOS_DYNAMIC_MODULE_EXPORT __attribute__((visibility("default"), used))
+#define TOS_DYNAMIC_MODULE_EXPORT __attribute__((visibility("default")))
 #else
-#define TOS_DYNAMIC_MODULE_EXPORT_DECLARATION
 #define TOS_DYNAMIC_MODULE_EXPORT
 #endif
 
@@ -56,14 +53,15 @@ class Module {
     [[nodiscard]] virtual Status OnUnload(Context&) = 0;
 };
 
-/// The required C-linkage data symbol exported by a dynamic module library.
-inline constexpr std::string_view kDynamicModuleSymbol = "tos_dynamic_module";
+/// The required C-linkage getter function exported by a dynamic module library.
+inline constexpr std::string_view kDynamicModuleSymbol = "tos_get_module";
 
 /// The type used to resolve kDynamicModuleSymbol from a DynamicLibrary.
 ///
-/// A plugin exports a `Module* const` whose value points to its own global Module object. The
-/// pointer is borrowed by App and must remain valid until the shared library is unloaded.
-using DynamicModuleExport = Module* const*;
+/// A plugin exports a function that returns a borrowed Module pointer. The pointer must remain
+/// valid until the shared library is unloaded. The function must use C linkage and noexcept; a
+/// thrown exception terminates the process.
+using DynamicModuleExport = Module* (*)() noexcept;
 
 }  // namespace tos
 
