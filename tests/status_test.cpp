@@ -1,5 +1,6 @@
 #include "tos/base/status.h"
 
+#include <cerrno>
 #include <gtest/gtest.h>
 #include <string>
 #include <string_view>
@@ -81,6 +82,41 @@ TEST(StatusTest, ClassificationPredicatesMatchOnlyTheirCode) {
         EXPECT_FALSE(candidate.matches(unknown_value)) << candidate.name;
     }
 }
+
+#ifdef _WIN32
+TEST(StatusTest, ClassifiesCommonWindowsErrors) {
+    EXPECT_EQ(WindowsError(ERROR_ENVVAR_NOT_FOUND, "read environment").code(),
+              StatusCode::kNotFound);
+    EXPECT_EQ(WindowsError(ERROR_ACCESS_DENIED, "write file").code(),
+              StatusCode::kPermissionDenied);
+    EXPECT_EQ(WindowsError(ERROR_INVALID_PARAMETER, "open handle").code(),
+              StatusCode::kInvalidArgument);
+    EXPECT_EQ(WindowsError(ERROR_NOT_ENOUGH_MEMORY, "allocate buffer").code(),
+              StatusCode::kResourceExhausted);
+    EXPECT_EQ(WindowsError(ERROR_FILE_EXISTS, "create file").code(), StatusCode::kAlreadyExists);
+    EXPECT_EQ(WindowsError(ERROR_DIR_NOT_EMPTY, "remove directory").code(),
+              StatusCode::kFailedPrecondition);
+    EXPECT_EQ(WindowsError(ERROR_NOT_SUPPORTED, "unsupported operation").code(),
+              StatusCode::kUnavailable);
+    EXPECT_EQ(WindowsError(ERROR_ACCESS_DENIED, "write file").ToString(),
+              "PERMISSION_DENIED: write file: Windows error " +
+                  std::to_string(static_cast<unsigned long>(ERROR_ACCESS_DENIED)));
+}
+#endif
+
+#ifndef _WIN32
+TEST(StatusTest, ClassifiesCommonErrnoValues) {
+    EXPECT_EQ(ErrnoError(ENOENT, "read file").code(), StatusCode::kNotFound);
+    EXPECT_EQ(ErrnoError(EACCES, "write file").code(), StatusCode::kPermissionDenied);
+    EXPECT_EQ(ErrnoError(EINVAL, "open handle").code(), StatusCode::kInvalidArgument);
+    EXPECT_EQ(ErrnoError(ENOSPC, "write file").code(), StatusCode::kResourceExhausted);
+    EXPECT_EQ(ErrnoError(EEXIST, "create file").code(), StatusCode::kAlreadyExists);
+    EXPECT_EQ(ErrnoError(ENOTEMPTY, "remove directory").code(), StatusCode::kFailedPrecondition);
+    EXPECT_EQ(ErrnoError(EINTR, "wait for process").code(), StatusCode::kUnavailable);
+    EXPECT_TRUE(ErrnoError(EACCES, "write file").ToString().find("write file: ") !=
+                std::string::npos);
+}
+#endif
 
 TEST(StatusTest, ToStringPreservesLongMessagesAndNullBytes) {
     for (const auto& message : {std::string(1024, 'x'), std::string("before\0after", 12)}) {

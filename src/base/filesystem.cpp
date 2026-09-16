@@ -39,35 +39,12 @@ Status FileError(const std::error_code& error, std::string_view action, const Pa
 }
 
 #ifndef _WIN32
-Status ErrnoError(int error, std::string_view action, const Path& path) {
-    return FileError(std::error_code(error, std::generic_category()), action, path);
+Status ErrnoFileError(int error, std::string_view action, const Path& path) {
+    return ErrnoError(error, std::string(action) + " '" + path.utf8() + "'");
 }
 #else
-Status WindowsError(DWORD error, std::string_view action, const Path& path) {
-    StatusCode code = StatusCode::kUnavailable;
-    switch (error) {
-        case ERROR_FILE_NOT_FOUND:
-        case ERROR_PATH_NOT_FOUND:
-            code = StatusCode::kNotFound;
-            break;
-        case ERROR_ACCESS_DENIED:
-            code = StatusCode::kPermissionDenied;
-            break;
-        case ERROR_DISK_FULL:
-            code = StatusCode::kResourceExhausted;
-            break;
-        case ERROR_FILE_EXISTS:
-        case ERROR_ALREADY_EXISTS:
-            code = StatusCode::kAlreadyExists;
-            break;
-        case ERROR_DIR_NOT_EMPTY:
-            code = StatusCode::kFailedPrecondition;
-            break;
-        default:
-            break;
-    }
-    return Status(code, std::string(action) + " '" + path.utf8() + "': Windows error " +
-                            std::to_string(error));
+Status WindowsFileError(DWORD error, std::string_view action, const Path& path) {
+    return WindowsError(error, std::string(action) + " '" + path.utf8() + "'");
 }
 #endif
 
@@ -129,7 +106,7 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
     HANDLE handle = CreateFileW(target.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
                                 CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
-        return WindowsError(GetLastError(), "could not open file", display_path);
+        return WindowsFileError(GetLastError(), "could not open file", display_path);
     }
 
     bool success = true;
@@ -156,7 +133,7 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
         success = false;
         failure = GetLastError();
     }
-    return success ? Status::Ok() : WindowsError(failure, "could not write file", display_path);
+    return success ? Status::Ok() : WindowsFileError(failure, "could not write file", display_path);
 }
 
 Status WriteAtomicWindows(const std::filesystem::path& target, const Path& display_path,
@@ -176,7 +153,8 @@ Status WriteAtomicWindows(const std::filesystem::path& target, const Path& displ
             break;
         }
         if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return WindowsError(GetLastError(), "could not create temporary file", display_path);
+            return WindowsFileError(GetLastError(), "could not create temporary file",
+                                    display_path);
         }
     }
     if (handle == INVALID_HANDLE_VALUE) {
@@ -210,13 +188,13 @@ Status WriteAtomicWindows(const std::filesystem::path& target, const Path& displ
     }
     if (!success) {
         DeleteFileW(temporary.c_str());
-        return WindowsError(failure, "could not write temporary file", display_path);
+        return WindowsFileError(failure, "could not write temporary file", display_path);
     }
     if (!MoveFileExW(temporary.c_str(), target.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         const DWORD error = GetLastError();
         DeleteFileW(temporary.c_str());
-        return WindowsError(error, "could not atomically replace file", display_path);
+        return WindowsFileError(error, "could not atomically replace file", display_path);
     }
     return Status::Ok();
 }
@@ -225,7 +203,7 @@ Status WriteDirectPosix(const std::filesystem::path& target, const Path& display
                         std::string_view text) {
     const int descriptor = open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (descriptor == -1) {
-        return ErrnoError(errno, "could not open file", display_path);
+        return ErrnoFileError(errno, "could not open file", display_path);
     }
 
     bool success = true;
@@ -252,7 +230,7 @@ Status WriteDirectPosix(const std::filesystem::path& target, const Path& display
         success = false;
         failure = errno;
     }
-    return success ? Status::Ok() : ErrnoError(failure, "could not write file", display_path);
+    return success ? Status::Ok() : ErrnoFileError(failure, "could not write file", display_path);
 }
 
 Status WriteAtomicPosix(const std::filesystem::path& target, const Path& display_path,
@@ -262,7 +240,7 @@ Status WriteAtomicPosix(const std::filesystem::path& target, const Path& display
     std::string temporary = (parent / (target.filename().string() + ".tos-tmp-XXXXXX")).string();
     const int descriptor = mkstemp(temporary.data());
     if (descriptor == -1) {
-        return ErrnoError(errno, "could not create temporary file", display_path);
+        return ErrnoFileError(errno, "could not create temporary file", display_path);
     }
 
     bool success = true;
@@ -291,12 +269,12 @@ Status WriteAtomicPosix(const std::filesystem::path& target, const Path& display
     }
     if (!success) {
         unlink(temporary.c_str());
-        return ErrnoError(failure, "could not write temporary file", display_path);
+        return ErrnoFileError(failure, "could not write temporary file", display_path);
     }
     if (rename(temporary.c_str(), target.c_str()) != 0) {
         const int error = errno;
         unlink(temporary.c_str());
-        return ErrnoError(error, "could not atomically replace file", display_path);
+        return ErrnoFileError(error, "could not atomically replace file", display_path);
     }
     return Status::Ok();
 }

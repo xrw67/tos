@@ -64,6 +64,7 @@ add_library(
     tosbase
     STATIC
     src/base/crypto.cpp
+    src/base/environment.cpp
     src/base/filesystem.cpp
     src/base/logging.cpp
     src/base/process.cpp

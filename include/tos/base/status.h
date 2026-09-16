@@ -4,8 +4,15 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <utility>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <cerrno>
+#endif
 
 namespace tos {
 
@@ -174,6 +181,76 @@ class [[nodiscard]] Status {
     // Null is success; every error exclusively owns its representation.
     std::unique_ptr<ErrorRep> rep_;
 };
+
+#ifdef _WIN32
+/// Converts a Windows system error code to a classified Status with action as diagnostic context.
+///
+/// This function is available only on Windows. It maps common file, environment, registry, and
+/// process errors to their corresponding StatusCode; other codes return kUnavailable. The numeric
+/// Windows error is appended to action. The function does not retain action; diagnostic allocation
+/// exceptions propagate.
+[[nodiscard]] inline Status WindowsError(DWORD error, std::string_view action) {
+    StatusCode code = StatusCode::kUnavailable;
+    switch (error) {
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:
+        case ERROR_ENVVAR_NOT_FOUND:
+            code = StatusCode::kNotFound;
+            break;
+        case ERROR_ACCESS_DENIED:
+            code = StatusCode::kPermissionDenied;
+            break;
+        case ERROR_INVALID_PARAMETER:
+        case ERROR_INVALID_NAME:
+            code = StatusCode::kInvalidArgument;
+            break;
+        case ERROR_NOT_ENOUGH_MEMORY:
+        case ERROR_OUTOFMEMORY:
+        case ERROR_DISK_FULL:
+        case ERROR_TOO_MANY_OPEN_FILES:
+            code = StatusCode::kResourceExhausted;
+            break;
+        case ERROR_FILE_EXISTS:
+        case ERROR_ALREADY_EXISTS:
+            code = StatusCode::kAlreadyExists;
+            break;
+        case ERROR_DIR_NOT_EMPTY:
+        case ERROR_KEY_HAS_CHILDREN:
+            code = StatusCode::kFailedPrecondition;
+            break;
+        default:
+            break;
+    }
+    return Status(code, std::string(action) + ": Windows error " + std::to_string(error));
+}
+#endif
+
+#ifndef _WIN32
+/// Converts a POSIX errno value to a classified Status with action as diagnostic context.
+///
+/// This function is available only on POSIX platforms. It maps common filesystem and process
+/// errors to their corresponding StatusCode; other errno values return kUnavailable. The error's
+/// generic-category message is appended to action. The function does not retain action; diagnostic
+/// allocation exceptions propagate.
+[[nodiscard]] inline Status ErrnoError(int error, std::string_view action) {
+    StatusCode code = StatusCode::kUnavailable;
+    if (error == EINVAL) {
+        code = StatusCode::kInvalidArgument;
+    } else if (error == ENOENT) {
+        code = StatusCode::kNotFound;
+    } else if (error == EPERM || error == EACCES) {
+        code = StatusCode::kPermissionDenied;
+    } else if (error == ENOMEM || error == ENOSPC || error == EMFILE || error == ENFILE) {
+        code = StatusCode::kResourceExhausted;
+    } else if (error == EEXIST) {
+        code = StatusCode::kAlreadyExists;
+    } else if (error == ENOTEMPTY || error == ENOTDIR || error == EISDIR) {
+        code = StatusCode::kFailedPrecondition;
+    }
+    return Status(code, std::string(action) + ": " +
+                            std::error_code(error, std::generic_category()).message());
+}
+#endif
 
 /// Returns whether status has exactly the corresponding StatusCode.
 ///

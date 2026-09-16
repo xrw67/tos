@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，以及链接系统 OpenSSL 的 `crypto`、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
 
 ### 环境要求
 
@@ -30,7 +30,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Crypto、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -240,6 +240,10 @@ int main() {
 错误表示由单个 Status 拥有，没有引用计数或原子操作。覆盖旧状态或析构时立即删除原错误表示及其消息，不让成功状态保留旧消息容量。并发只读访问是安全的；涉及同一对象的赋值、移动或析构时需要调用方同步。
 
 `ToString()` 返回独立的 `std::string`，适合记录日志：成功输出 `OK`，错误输出符号名称，有消息时追加 `: 消息`。未知错误码输出 `UNKNOWN(数值)`。消息按原始长度保留，包括嵌入的空字符，不进行转义；调用不会修改状态，但字符串构造可能抛出分配异常。
+
+Windows 上，`WindowsError(DWORD error, std::string_view action)` 会把常见的文件、环境、注册表和进程错误码转换为对应的 `StatusCode`，并在消息中保留原始数值；未识别的码为 `kUnavailable`。该辅助函数仅在 Windows 声明，跨平台调用方需要以 `_WIN32` 条件编译。
+
+Linux 和 macOS 上，`ErrnoError(int error, std::string_view action)` 会把常见的 POSIX `errno` 转换为对应的 `StatusCode`，并在消息中附加通用错误文本；未识别的码为 `kUnavailable`。该辅助函数仅在非 Windows 平台声明，跨平台调用方需要以 `_WIN32` 条件编译。
 
 ```cpp
 const tos::Status error(tos::StatusCode::kNotFound, "missing");
@@ -629,7 +633,28 @@ if (!source || !port || source.value() != "file" || port.value() != 443) {
 }
 ```
 
-`LayeredConfig` 的层集合不可变，副本共享同一状态并支持并发读取；替换配置时，构造新的 `LayeredConfig` 并把其 `Snapshot()` 发布到 `ConfigStore`。它不读取文件、不监听文件，也不读取环境变量或命令行参数；这些能力仍留待后续组件实现。所有预期输入失败通过 `Result` 的 `Status` 报告，字符串、容器和合并树所需的分配异常会直接传播。
+`LayeredConfig` 的层集合不可变，副本共享同一状态并支持并发读取；替换配置时，构造新的 `LayeredConfig` 并把其 `Snapshot()` 发布到 `ConfigStore`。它不读取文件、不监听文件，也不自行把环境变量或命令行参数装配为配置层；这些能力仍留待后续组件实现。所有预期输入失败通过 `Result` 的 `Status` 报告，字符串、容器和合并树所需的分配异常会直接传播。
+
+## 进程环境
+
+`<tos/base/environment.h>` 提供 `tos::Environment`，用于读取和修改当前进程环境。`GetVar()` 返回独立拥有的变量值，未设置返回 `kNotFound`；设置为空字符串仍被视为存在。`GetVarOr()` 直接返回 `std::string`，变量未设置、名称无效或原生读取失败时返回默认值；`HasVar()` 直接返回 `bool`，在同样三种情况返回 `false`。需要区分这些情况时使用 `GetVar()`。`SetVar()` 和 `UnsetVar()` 分别设置和删除变量。名称必须非空，且不能含 `=` 或 NUL；值不能含 NUL。POSIX 名称区分大小写，Windows 名称不区分大小写。Windows 的输入和结果使用 UTF-8；POSIX 保留环境提供的原始非 NUL 字节。
+
+`GetPathVar()` 以 POSIX 的 `:` 或 Windows 的 `;` 分割 `PATH`，并保留空字段，因此已设置但为空的 PATH 得到一个空字段；未设置、无效或无法读取的 PATH 得到空 vector。需要区分这些情况时使用 `GetVar("PATH")`。所有 `Environment` 调用彼此串行化，可并发使用；但环境是进程级资源，调用方不得让这套 API 与直接的 `getenv`、`setenv`、`unsetenv`、`_putenv_s`、`SetEnvironmentVariableW` 或其他直接环境修改并发执行。它也不会与子进程创建同步。修改操作的预期失败通过 `Status` 返回；字符串、容器、错误文本和 Windows UTF-8 转换所需的分配异常直接传播。
+
+```cpp
+#include <tos/base/environment.h>
+
+#include <string>
+#include <vector>
+
+auto endpoint = tos::Environment::GetVarOr("SERVICE_ENDPOINT", "https://localhost:8443");
+const tos::Status updated = tos::Environment::SetVar("SERVICE_MODE", "development");
+if (!updated) {
+    return 1;
+}
+auto path_entries = tos::Environment::GetPathVar();
+return !endpoint.empty() && !path_entries.empty() ? 0 : 1;
+```
 
 ## 基础需求草案
 
