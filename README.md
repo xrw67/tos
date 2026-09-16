@@ -763,6 +763,44 @@ if (!source || !port || source.value() != "file" || port.value() != 443) {
 
 `LayeredConfig` 的层集合不可变，副本共享同一状态并支持并发读取；替换配置时，构造新的 `LayeredConfig` 并把其 `Snapshot()` 发布到 `ConfigStore`。它不读取文件、不监听文件，也不自行把环境变量或命令行参数装配为配置层；这些能力仍留待后续组件实现。所有预期输入失败通过 `Result` 的 `Status` 报告，字符串、容器和合并树所需的分配异常会直接传播。
 
+## 命令行参数
+
+`<tos/base/command_line.h>` 提供独立于 `App`、配置和环境的 UTF-8 命令行解析器。传入的参数数组不含 `argv[0]`；Windows 调用方应先在 `wmain` 中将参数转换为 UTF-8。畸形 UTF-8 或嵌入 NUL 的参数会被拒绝。它支持长选项、短选项、必填值、可重复选项、位置参数和 `--` 分隔符。`-h`/`--help` 与 `-V`/`--version` 是保留的内置动作，解析到任一动作后会忽略后续参数。解析结果独立拥有全部文本，适合跨线程只读使用；规格或参数错误返回 `Status`，分配异常直接传播。此 API 不把命令行映射到 `Config`，配置装配仍留待后续组件。
+
+```cpp
+#include <iostream>
+#include <string_view>
+#include <vector>
+
+#include "tos/base/command_line.h"
+
+const tos::CommandLineSpec spec{
+    "tos-tool",
+    "1.0.0",
+    "Example command.",
+    {{"config", 'c', tos::CommandLineOptionValueMode::kRequired, false, "FILE",
+      "Read configuration."},
+     {"verbose", 'v', tos::CommandLineOptionValueMode::kNone, false, "", "Verbose output."}},
+};
+const std::vector<std::string_view> arguments{"--config", "app.yaml", "serve"};
+auto parsed = tos::ParseCommandLine(arguments, spec);
+if (!parsed) {
+    return 1;
+}
+if (parsed->action() == tos::CommandLineAction::kHelp) {
+    std::cout << tos::FormatCommandLineHelp(spec);
+    return 0;
+}
+if (parsed->action() == tos::CommandLineAction::kVersion) {
+    std::cout << tos::FormatCommandLineVersion(spec);
+    return 0;
+}
+const auto config_path = parsed->Value("config");
+if (!config_path || !parsed->Has("verbose")) {
+    return 1;
+}
+```
+
 ## 进程环境
 
 `<tos/base/environment.h>` 提供 `tos::Environment`，用于读取和修改当前进程环境。`GetVar()` 返回独立拥有的变量值，未设置返回 `kNotFound`；设置为空字符串仍被视为存在。`GetVarOr()` 直接返回 `std::string`，变量未设置、名称无效或原生读取失败时返回默认值；`HasVar()` 直接返回 `bool`，在同样三种情况返回 `false`。需要区分这些情况时使用 `GetVar()`。`SetVar()` 和 `UnsetVar()` 分别设置和删除变量。名称必须非空，且不能含 `=` 或 NUL；值不能含 NUL。POSIX 名称区分大小写，Windows 名称不区分大小写。Windows 的输入和结果使用 UTF-8；POSIX 保留环境提供的原始非 NUL 字节。
