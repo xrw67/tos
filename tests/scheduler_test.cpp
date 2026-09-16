@@ -26,6 +26,34 @@ class RejectingExecutor final : public tos::Executor {
     }
 };
 
+class DispatchObservingExecutor final : public tos::Executor {
+   public:
+    explicit DispatchObservingExecutor(tos::Executor& executor) : executor_(executor) {}
+
+    tos::Status Post(tos::Task task) override {
+        tos::Status admitted = executor_.Post(std::move(task));
+        if (admitted) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                submitted_ = true;
+            }
+            submitted_changed_.notify_all();
+        }
+        return admitted;
+    }
+
+    bool WaitForSubmission(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return submitted_changed_.wait_for(lock, timeout, [this] { return submitted_; });
+    }
+
+   private:
+    tos::Executor& executor_;
+    std::mutex mutex_;
+    std::condition_variable submitted_changed_;
+    bool submitted_ = false;
+};
+
 void WaitForCount(std::mutex& mutex, std::condition_variable& changed, const std::size_t& count,
                   std::size_t expected) {
     std::unique_lock<std::mutex> lock(mutex);
@@ -127,7 +155,8 @@ TEST(SchedulerTest, HandleDestructionAndCancellationPreventFutureDispatch) {
 TEST(SchedulerTest, CancellationCanWinAfterTaskIsSubmittedButBeforeExecution) {
     tos::ManualMonotonicClock clock;
     tos::ThreadPool pool(1, 2);
-    tos::Scheduler scheduler(pool, clock);
+    DispatchObservingExecutor executor(pool);
+    tos::Scheduler scheduler(executor, clock);
     std::mutex mutex;
     std::condition_variable ready;
     std::condition_variable release;
@@ -149,10 +178,8 @@ TEST(SchedulerTest, CancellationCanWinAfterTaskIsSubmittedButBeforeExecution) {
     auto scheduled = scheduler.ScheduleAfter(tos::Duration(), [&] { ++invoked; });
     ASSERT_TRUE(scheduled);
     auto handle = std::move(scheduled).value();
-    for (int attempt = 0; attempt < 100 && pool.stats().queued == 0; ++attempt) {
-        std::this_thread::yield();
-    }
-    ASSERT_EQ(pool.stats().queued, 1U);
+    EXPECT_TRUE(executor.WaitForSubmission(1s));
+    EXPECT_EQ(pool.stats().queued, 1U);
     ASSERT_TRUE(handle.Cancel());
     {
         std::lock_guard<std::mutex> lock(mutex);

@@ -129,7 +129,7 @@ Result<std::string> DigestData(const char* name, const char* data, std::size_t l
     }
     Status updated = UpdateDigest(context.value().get(), data, len);
     if (!updated) {
-        return std::move(updated);
+        return updated;
     }
     return FinishDigest(context.value().get());
 }
@@ -185,7 +185,7 @@ Result<std::string> DigestFile(const char* name, const std::string& filename) {
             Status updated =
                 UpdateDigest(context.value().get(), buffer.data(), static_cast<std::size_t>(count));
             if (!updated) {
-                return std::move(updated);
+                return updated;
             }
         }
     }

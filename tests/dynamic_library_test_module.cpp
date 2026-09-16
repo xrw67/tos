@@ -6,4 +6,6 @@
 
 extern "C" TOS_TEST_EXPORT int TosDynamicLibraryIncrement(int value) { return value + 1; }
 
-extern "C" TOS_TEST_EXPORT int tos_dynamic_library_test_value = 42;
+extern "C" {
+TOS_TEST_EXPORT int tos_dynamic_library_test_value = 42;
+}
