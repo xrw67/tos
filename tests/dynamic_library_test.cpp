@@ -1,9 +1,10 @@
 #include "tos/base/dynamic_library.h"
 
-#include <gtest/gtest.h>
 #include <string>
 #include <type_traits>
 #include <utility>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

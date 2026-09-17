@@ -1,8 +1,9 @@
 #include "tos/base/system.h"
 
 #include <chrono>
-#include <gtest/gtest.h>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

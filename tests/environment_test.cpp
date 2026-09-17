@@ -1,13 +1,14 @@
 #include "tos/base/environment.h"
 
 #include <atomic>
-#include <gtest/gtest.h>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

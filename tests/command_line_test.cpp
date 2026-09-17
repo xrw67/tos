@@ -1,11 +1,12 @@
 #include "tos/base/command_line.h"
 
-#include <gtest/gtest.h>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace {
 

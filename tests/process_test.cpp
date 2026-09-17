@@ -2,11 +2,12 @@
 
 #include <cstdlib>
 #include <filesystem>
-#include <gtest/gtest.h>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

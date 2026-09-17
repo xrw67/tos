@@ -4,12 +4,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
-#include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "tos/base/thread_pool.h"
 

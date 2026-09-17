@@ -1,11 +1,12 @@
 #include "tos/base/filesystem.h"
 
 #include <filesystem>
-#include <gtest/gtest.h>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "test_util.h"
 

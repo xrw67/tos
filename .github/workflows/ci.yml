@@ -27,9 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenSSL development files
+      - name: Install Linux build and formatting dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev clang-format-18
+
+      - name: Check source formatting
+        if: runner.os == 'Linux'
+        run: >-
+          find include/tos src tests examples -type f
+          \( -name '*.h' -o -name '*.cpp' -o -name '*.cc' \)
+          ! -path 'include/tos/vendor/*' -print0
+          | xargs -0 -r clang-format-18 --dry-run --Werror
 
       - name: Install OpenSSL 3
         if: runner.os == 'macOS'

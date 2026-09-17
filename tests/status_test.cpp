@@ -1,11 +1,12 @@
 #include "tos/base/status.h"
 
 #include <cerrno>
-#include <gtest/gtest.h>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

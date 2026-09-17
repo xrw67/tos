@@ -1,10 +1,11 @@
 #include <cstddef>
 #include <cstdlib>
-#include <gtest/gtest.h>
 #include <limits>
 #include <new>
 #include <string>
 #include <utility>
+
+#include <gtest/gtest.h>
 
 #include "tos/base/result.h"
 #include "tos/base/status.h"

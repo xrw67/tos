@@ -21,11 +21,11 @@ ShortNamespaceLines: 1 # 只有一行的短 namespace 不加结尾注释
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup # 按 IncludeCategories 自动分组重排
 IncludeCategories:
-  - Regex: '^<[a-z_]+\.h>' # C 系统头(无路径):<unistd.h>、<stdio.h>
+  - Regex: '^<([a-z0-9_]+\.h|sys/|mach-o/)' # C 与平台系统头
     Priority: 1
-  - Regex: "^<sys/" # C 系统头(sys 目录):<sys/types.h>
-    Priority: 1
-  - Regex: "^<" # C++ 标准库与第三方库:<vector>、<fmt/core.h>
+  - Regex: '^<' # C++ 标准库
     Priority: 2
-  - Regex: '^"' # 本项目头文件:"app/config.h"
+  - Regex: '^<(gtest|openssl|fmt)/' # 已知第三方头
     Priority: 3
+  - Regex: '^"' # 本项目头文件
+    Priority: 4

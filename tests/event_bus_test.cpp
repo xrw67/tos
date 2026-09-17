@@ -2,12 +2,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
-#include <gtest/gtest.h>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "tos/app/event.h"
 

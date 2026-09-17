@@ -5,13 +5,14 @@
 #include <condition_variable>
 #include <exception>
 #include <future>
-#include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace {
 

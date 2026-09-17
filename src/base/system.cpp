@@ -12,10 +12,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #elif defined(__APPLE__)
+#include <mach-o/dyld.h>
 #include <pthread.h>
 #include <unistd.h>
-
-#include <mach-o/dyld.h>
 #elif defined(__linux__)
 #include <sched.h>
 #include <sys/syscall.h>

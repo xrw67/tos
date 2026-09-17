@@ -1,11 +1,12 @@
 #include "tos/base/registry.h"
 
 #include <cstdint>
-#include <gtest/gtest.h>
 #include <string>
 #include <utility>
 #include <variant>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #ifdef _WIN32
 #include <windows.h>

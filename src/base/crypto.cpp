@@ -8,13 +8,14 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <utility>
+
 #include <openssl/bio.h>
 #include <openssl/buffer.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
-#include <utility>
 
 namespace tos {
 namespace {

@@ -4,11 +4,12 @@
 #include <chrono>
 #include <cstdint>
 #include <future>
-#include <gtest/gtest.h>
 #include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

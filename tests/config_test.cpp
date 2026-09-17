@@ -2,10 +2,11 @@
 
 #include <atomic>
 #include <cstdint>
-#include <gtest/gtest.h>
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

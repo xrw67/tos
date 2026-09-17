@@ -1,7 +1,6 @@
 #include <atomic>
 #include <chrono>
 #include <future>
-#include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -10,6 +9,8 @@
 #include <thread>
 #include <type_traits>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #include "tos/app/app.h"
 #include "tos/app/context.h"
