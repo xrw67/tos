@@ -64,6 +64,7 @@ add_library(
     tosbase
     STATIC
     src/base/base64.cpp
+    src/base/certificate.cpp
     src/base/crypto.cpp
     src/base/dynamic_library.cpp
     src/base/environment.cpp

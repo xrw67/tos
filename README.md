@@ -658,6 +658,12 @@ I/O 或口令处理。库不擦除调用方提供的 PEM，也不承诺擦除返
 签名或摘要缓冲区，调用方负责敏感数据的生命周期和存储策略。签名或 RSA-OAEP 密文
 校验失败返回 `kUnauthenticated`，且不会暴露 OpenSSL 原始错误信息。
 
+`<tos/base/certificate.h>` 提供通用的 PEM 证书工具。`CreateCertificateSigningRequest()` 会
+复用指定路径上的未加密私钥；文件不存在时生成 RSA 私钥并以 PKCS#8 PEM 原子保存，默认使用
+3072 位密钥，POSIX 下将文件权限限制为 owner-only `0600`，然后返回带 SHA-256 签名的 CSR。
+`CertificateNeedsRenewal()` 根据证书 `notAfter` 和调用方提供的续期窗口返回判断结果。文件、
+PEM、OpenSSL 和参数错误均通过 `Result`/`Status` 返回，不暴露 OpenSSL 原始错误。
+
 ## Base64
 
 `<tos/base/base64.h>` 提供不依赖 OpenSSL 的严格 RFC 4648 `Base64Encode()`、

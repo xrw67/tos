@@ -1,6 +1,7 @@
 add_executable(tos_unit_tests
     base_test.cpp
     command_line_test.cpp
+    certificate_test.cpp
     status_test.cpp
     result_test.cpp
     time_test.cpp
