@@ -2,6 +2,7 @@ add_executable(tos_unit_tests
     base_test.cpp
     command_line_test.cpp
     certificate_test.cpp
+    http_test.cpp
     status_test.cpp
     result_test.cpp
     time_test.cpp
@@ -63,6 +64,9 @@ add_subdirectory(app_consumer)
 target_link_libraries(
     tos_unit_tests
     PRIVATE tos::app GTest::gtest_main)
+if(WIN32)
+    target_link_libraries(tos_unit_tests PRIVATE Ws2_32)
+endif()
 target_compile_definitions(
     tos_unit_tests
     PRIVATE TOS_DYNAMIC_LIBRARY_TEST_MODULE="$<TARGET_FILE:tos_dynamic_library_test_module>"

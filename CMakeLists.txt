@@ -58,17 +58,20 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
 endif()
 
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+find_package(CURL CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
 add_library(
     tosbase
     STATIC
     src/base/base64.cpp
+    src/base/atomic_file_writer.cpp
     src/base/certificate.cpp
     src/base/crypto.cpp
     src/base/dynamic_library.cpp
     src/base/environment.cpp
     src/base/filesystem.cpp
+    src/base/http.cpp
     src/base/logging.cpp
     src/base/process.cpp
     src/base/registry.cpp
@@ -78,7 +81,7 @@ add_library(
 add_library(tos::base ALIAS tosbase)
 target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(tosbase PUBLIC cxx_std_17)
-target_link_libraries(tosbase PUBLIC OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS})
+target_link_libraries(tosbase PUBLIC OpenSSL::Crypto CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 if(WIN32)
     target_link_libraries(tosbase PUBLIC Advapi32 Kernel32)
 endif()

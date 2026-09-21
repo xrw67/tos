@@ -22,6 +22,9 @@ namespace tos {
 /// validated bytes are used as the native path representation.
 class Path {
    public:
+    /// Creates an empty path. Filesystem operations reject empty paths.
+    Path() = default;
+
     /// Parses a UTF-8 path. Empty paths are permitted, but filesystem operations may reject them.
     [[nodiscard]] static Result<Path> Parse(std::string_view utf8);
 

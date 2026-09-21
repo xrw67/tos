@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，不依赖 OpenSSL 的 Base64、链接系统 OpenSSL 的 `crypto`、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
+当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，不依赖 OpenSSL 的 Base64、链接系统 OpenSSL 的 `crypto`、链接系统 libcurl 的同步 HTTP、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
 
 ### 环境要求
 
@@ -17,7 +17,8 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/base/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
 - span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/base/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
 - OpenSSL 3.0 或更新版本的开发包，包含头文件和 `libcrypto`。macOS 使用 `brew install openssl@3` 后应以 `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)` 配置；Windows 需要提供与 MSVC 架构匹配的 OpenSSL 开发包。
-- 配置和构建不会下载依赖，也无需初始化 Git 子模块；OpenSSL 必须由环境预先安装。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
+- libcurl 开发包，包含头文件和可链接的 `libcurl`；CMake 通过 `CURL::libcurl` 使用它。
+- 配置和构建不会下载依赖，也无需初始化 Git 子模块；OpenSSL 和 libcurl 必须由环境预先安装。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
 
@@ -30,7 +31,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -49,7 +50,7 @@ CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，�
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/base/json.h>`、`<tos/base/yaml.h>`、`<tos/base/format.h>` 与 `<tos/base/span.h>` 提供。`<tos/base/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现。完整检出且已安装 OpenSSL 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/base/json.h>`、`<tos/base/yaml.h>`、`<tos/base/format.h>` 与 `<tos/base/span.h>` 提供。`<tos/base/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现，`<tos/base/http.h>` 由系统 libcurl 实现。完整检出且已安装 OpenSSL 与 libcurl 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
 ### 接入其他工程
 
@@ -60,11 +61,11 @@ add_subdirectory(third_party/tos)
 target_link_libraries(your_app PRIVATE tos::base)
 ```
 
-`your_app` 应由消费工程先通过 `add_executable` 或 `add_library` 定义。`tos::base` 传递头文件路径、至少 C++17 的编译要求，以及 OpenSSL、线程和 Windows 注册表所需的系统链接依赖；消费工程自行设置其目标是否启用编译器语言扩展。
+`your_app` 应由消费工程先通过 `add_executable` 或 `add_library` 定义。`tos::base` 传递头文件路径、至少 C++17 的编译要求，以及 OpenSSL、libcurl、线程和 Windows 注册表所需的系统链接依赖；消费工程自行设置其目标是否启用编译器语言扩展。
 
 作为子工程时，两个构建选项默认关闭；若上层工程或 CMake 缓存已经设置了同名选项，则尊重现有值。当前未提供安装导出或 `find_package` 接入。
 
-需要模块化 Application 时，将链接目标改为 `tos::app`；它会传递 `tos::base` 的头文件、C++17、OpenSSL 和线程依赖：
+需要模块化 Application 时，将链接目标改为 `tos::app`；它会传递 `tos::base` 的头文件、C++17、OpenSSL、libcurl 和线程依赖：
 
 ```cmake
 target_link_libraries(your_app PRIVATE tos::app)
@@ -663,6 +664,13 @@ I/O 或口令处理。库不擦除调用方提供的 PEM，也不承诺擦除返
 3072 位密钥，POSIX 下将文件权限限制为 owner-only `0600`，然后返回带 SHA-256 签名的 CSR。
 `CertificateNeedsRenewal()` 根据证书 `notAfter` 和调用方提供的续期窗口返回判断结果。文件、
 PEM、OpenSSL 和参数错误均通过 `Result`/`Status` 返回，不暴露 OpenSSL 原始错误。
+
+`<tos/base/http.h>` 提供同步的通用 HTTP Request/Response API，以及 `HttpGet()`、`HttpPost()`、
+`DownloadFile()` 和 `UploadFile()` 高级封装。所有接口同时支持 HTTP/HTTPS；请求选项可配置
+headers、超时、取消和 CA/mTLS 文件。HTTP 状态码（包括 4xx/5xx）作为响应返回，网络、超时、
+取消和配置失败通过 `Status` 返回。文件上传使用原始字节流，下载使用临时文件流式写入，只有
+2xx 响应才原子替换目标文件。libcurl 的全局初始化、资源释放和 TLS 校验由 `tos::base` 管理，
+取消指针仅在请求期间借用，不转移所有权。
 
 ## Base64
 
