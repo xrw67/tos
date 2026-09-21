@@ -16,6 +16,7 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 namespace tos {
 namespace {
@@ -145,6 +146,37 @@ Result<std::string> CreateRequestPem(EVP_PKEY* key, std::string_view common_name
     return BioString(output.value().get());
 }
 
+Result<CertificatePtr> ParseCertificate(std::string_view certificate_pem) {
+    auto input = InputBio(certificate_pem);
+    if (!input) {
+        return std::move(input).status();
+    }
+    ERR_clear_error();
+    CertificatePtr certificate(PEM_read_bio_X509(input.value().get(), nullptr, nullptr, nullptr),
+                               X509_free);
+    if (!certificate) {
+        return InvalidArgument("PEM input is not a valid X.509 certificate");
+    }
+    return certificate;
+}
+
+Result<std::string> CertificateFingerprint(X509* certificate) {
+    unsigned char digest[EVP_MAX_MD_SIZE] = {};
+    unsigned int digest_size = 0;
+    ERR_clear_error();
+    if (X509_digest(certificate, EVP_sha256(), digest, &digest_size) != 1) {
+        return InternalError("OpenSSL could not fingerprint certificate");
+    }
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string fingerprint;
+    fingerprint.reserve(static_cast<std::size_t>(digest_size) * 2);
+    for (unsigned int index = 0; index < digest_size; ++index) {
+        fingerprint.push_back(kHex[(digest[index] >> 4U) & 0x0fU]);
+        fingerprint.push_back(kHex[digest[index] & 0x0fU]);
+    }
+    return fingerprint;
+}
+
 }  // namespace
 
 Result<std::string> CreateCertificateSigningRequest(const Path& private_key_path,
@@ -183,6 +215,52 @@ Result<std::string> CreateCertificateSigningRequest(const Path& private_key_path
     return CreateRequestPem(key.get(), common_name);
 }
 
+Result<ClientCertificateInfo> ValidateClientCertificate(std::string_view certificate_pem,
+                                                        const Path& private_key_path) {
+    auto certificate = ParseCertificate(certificate_pem);
+    if (!certificate) {
+        return std::move(certificate).status();
+    }
+    auto private_key_pem = ReadTextFile(private_key_path);
+    if (!private_key_pem) {
+        return std::move(private_key_pem).status();
+    }
+    auto private_key = ReadPrivateKey(private_key_pem.value());
+    if (!private_key) {
+        return std::move(private_key).status();
+    }
+    ERR_clear_error();
+    if (X509_cmp_current_time(X509_get0_notBefore(certificate.value().get())) > 0 ||
+        X509_cmp_current_time(X509_get0_notAfter(certificate.value().get())) <= 0) {
+        return InvalidArgument("client certificate is not currently valid");
+    }
+    if (X509_check_purpose(certificate.value().get(), X509_PURPOSE_SSL_CLIENT, 0) != 1) {
+        return InvalidArgument("certificate is not valid for TLS client authentication");
+    }
+    if (X509_check_private_key(certificate.value().get(), private_key.value().get()) != 1) {
+        return InvalidArgument("client certificate does not match private key");
+    }
+    const ASN1_TIME* not_after = X509_get0_notAfter(certificate.value().get());
+    struct tm expiration = {};
+    if (not_after == nullptr || ASN1_TIME_to_tm(not_after, &expiration) != 1) {
+        return InvalidArgument("certificate has an invalid expiration time");
+    }
+#if defined(_WIN32)
+    const std::time_t expiration_seconds = _mkgmtime(&expiration);
+#else
+    const std::time_t expiration_seconds = timegm(&expiration);
+#endif
+    if (expiration_seconds == static_cast<std::time_t>(-1)) {
+        return InvalidArgument("certificate expiration is outside system time range");
+    }
+    auto fingerprint = CertificateFingerprint(certificate.value().get());
+    if (!fingerprint) {
+        return std::move(fingerprint).status();
+    }
+    return ClientCertificateInfo{std::chrono::system_clock::from_time_t(expiration_seconds),
+                                 std::move(fingerprint).value()};
+}
+
 Result<bool> CertificateNeedsRenewal(const Path& certificate_path,
                                      std::chrono::hours renewal_window) {
     if (renewal_window.count() < 0) {
@@ -192,13 +270,11 @@ Result<bool> CertificateNeedsRenewal(const Path& certificate_path,
     if (!certificate_text) {
         return std::move(certificate_text).status();
     }
-    auto input = InputBio(certificate_text.value());
-    if (!input) {
-        return std::move(input).status();
+    auto parsed = ParseCertificate(certificate_text.value());
+    if (!parsed) {
+        return std::move(parsed).status();
     }
-    ERR_clear_error();
-    CertificatePtr certificate(PEM_read_bio_X509(input.value().get(), nullptr, nullptr, nullptr),
-                               X509_free);
+    CertificatePtr certificate = std::move(parsed).value();
     if (!certificate) {
         return InvalidArgument("PEM input is not a valid X.509 certificate");
     }

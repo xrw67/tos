@@ -8,6 +8,7 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -62,6 +63,45 @@ std::string SelfSignedCertificate(int not_after_seconds) {
                                    0) != 1 ||
         X509_set_issuer_name(certificate.get(), subject) != 1 ||
         X509_sign(certificate.get(), key.get(), EVP_sha256()) <= 0 ||
+        PEM_write_bio_X509(output.get(), certificate.get()) != 1) {
+        return {};
+    }
+    char* data = nullptr;
+    const long length = BIO_get_mem_data(output.get(), &data);
+    return length > 0 && data != nullptr ? std::string(data, static_cast<std::size_t>(length))
+                                         : std::string();
+}
+
+std::string ClientCertificateForKey(std::string_view private_key_pem, int not_after_seconds,
+                                    const char* extended_key_usage) {
+    BioPtr key_input(BIO_new_mem_buf(private_key_pem.data(), static_cast<int>(private_key_pem.size())),
+                     BIO_free);
+    PkeyPtr key(PEM_read_bio_PrivateKey(key_input.get(), nullptr, nullptr, nullptr), EVP_PKEY_free);
+    CertificatePtr certificate(X509_new(), X509_free);
+    BioPtr output(BIO_new(BIO_s_mem()), BIO_free);
+    if (!key || !certificate || !output || X509_set_version(certificate.get(), 2) != 1 ||
+        ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 2) != 1 ||
+        X509_gmtime_adj(X509_getm_notBefore(certificate.get()), -60) == nullptr ||
+        X509_gmtime_adj(X509_getm_notAfter(certificate.get()), not_after_seconds) == nullptr ||
+        X509_set_pubkey(certificate.get(), key.get()) != 1) {
+        return {};
+    }
+    X509_NAME* subject = X509_get_subject_name(certificate.get());
+    if (subject == nullptr ||
+        X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC,
+                                   reinterpret_cast<const unsigned char*>("test-client"), -1, -1,
+                                   0) != 1 ||
+        X509_set_issuer_name(certificate.get(), subject) != 1) {
+        return {};
+    }
+    X509_EXTENSION* usage = X509V3_EXT_conf_nid(nullptr, nullptr, NID_ext_key_usage,
+                                                 const_cast<char*>(extended_key_usage));
+    if (usage == nullptr || X509_add_ext(certificate.get(), usage, -1) != 1) {
+        X509_EXTENSION_free(usage);
+        return {};
+    }
+    X509_EXTENSION_free(usage);
+    if (X509_sign(certificate.get(), key.get(), EVP_sha256()) <= 0 ||
         PEM_write_bio_X509(output.get(), certificate.get()) != 1) {
         return {};
     }
@@ -161,6 +201,34 @@ TEST(CertificateTest, ChecksRenewalWindowAndCertificateErrors) {
     const auto negative_window = CertificateNeedsRenewal(soon_path, std::chrono::hours(-1));
     ASSERT_FALSE(negative_window);
     EXPECT_EQ(negative_window.status().code(), StatusCode::kInvalidArgument);
+}
+
+TEST(CertificateTest, ValidatesClientCertificateAndPrivateKeyBeforeActivation) {
+    test::TemporaryDirectory directory("tos-client-certificate-test-");
+    const auto key_path = TestPath(directory.path() / "client-key.pem");
+    ASSERT_TRUE(CreateCertificateSigningRequest(key_path, "agent"));
+    const auto key = ReadTextFile(key_path);
+    ASSERT_TRUE(key) << key.status().ToString();
+    const std::string client_certificate =
+        ClientCertificateForKey(key.value(), 24 * 60 * 60, "clientAuth");
+    ASSERT_FALSE(client_certificate.empty());
+
+    const auto valid = ValidateClientCertificate(client_certificate, key_path);
+    ASSERT_TRUE(valid) << valid.status().ToString();
+    EXPECT_EQ(valid.value().sha256_fingerprint.size(), 64U);
+    EXPECT_GT(valid.value().not_after, std::chrono::system_clock::now());
+
+    const auto other_key_path = TestPath(directory.path() / "other-key.pem");
+    ASSERT_TRUE(CreateCertificateSigningRequest(other_key_path, "other"));
+    const auto mismatch = ValidateClientCertificate(client_certificate, other_key_path);
+    ASSERT_FALSE(mismatch);
+    EXPECT_EQ(mismatch.status().code(), StatusCode::kInvalidArgument);
+
+    const std::string server_certificate =
+        ClientCertificateForKey(key.value(), 24 * 60 * 60, "serverAuth");
+    const auto wrong_usage = ValidateClientCertificate(server_certificate, key_path);
+    ASSERT_FALSE(wrong_usage);
+    EXPECT_EQ(wrong_usage.status().code(), StatusCode::kInvalidArgument);
 }
 
 }  // namespace
