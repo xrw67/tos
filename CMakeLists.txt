@@ -73,6 +73,7 @@ add_library(
     src/base/filesystem.cpp
     src/base/http.cpp
     src/base/logging.cpp
+    src/base/network.cpp
     src/base/process.cpp
     src/base/registry.cpp
     src/base/scheduler.cpp
@@ -83,7 +84,7 @@ target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(tosbase PUBLIC cxx_std_17)
 target_link_libraries(tosbase PUBLIC OpenSSL::Crypto CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
 if(WIN32)
-    target_link_libraries(tosbase PUBLIC Advapi32 Kernel32)
+    target_link_libraries(tosbase PUBLIC Advapi32 Kernel32 Ws2_32)
 endif()
 
 add_library(

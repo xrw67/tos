@@ -31,7 +31,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、Network、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、字节序和 IPv4/IPv6 转换、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -671,6 +671,11 @@ headers、超时、取消和 CA/mTLS 文件。HTTP 状态码（包括 4xx/5xx）
 取消和配置失败通过 `Status` 返回。文件上传使用原始字节流，下载使用临时文件流式写入，只有
 2xx 响应才原子替换目标文件。libcurl 的全局初始化、资源释放和 TLS 校验由 `tos::base` 管理，
 取消指针仅在请求期间借用，不转移所有权。
+
+`<tos/base/network.h>` 提供主机字节序与网络字节序之间的 16/32/64 位整数转换，以及
+`ParseIPv4()`、`FormatIPv4()`、`ParseIPv6()` 和 `FormatIPv6()`。IP 地址使用固定长度的
+`IPv4Address`/`IPv6Address` 字节数组表示，解析失败返回 `kInvalidArgument`，IPv6 格式化遵循
+系统标准文本表示。
 
 ## Base64
 

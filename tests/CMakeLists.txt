@@ -22,6 +22,7 @@ add_executable(tos_unit_tests
     crypto_test.cpp
     dynamic_library_test.cpp
     logging_test.cpp
+    network_test.cpp
     scheduler_test.cpp
     thread_pool_test.cpp
     application_test.cpp
