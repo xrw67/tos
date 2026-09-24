@@ -102,3 +102,25 @@ when configuring and linking. This dependency is discovered locally and is never
 downloaded by tos. Because it is supplied by the build environment, no vendored
 archive checksum applies; deployments must track their package manager's OpenSSL
 security updates.
+
+## CLI11
+
+- Public include directory: `../include/tos/vendor/cli11/`
+- Version: `2.7.2` (upstream tag `v2.7.2`)
+- Upstream: https://github.com/CLIUtils/CLI11
+- Release header: https://github.com/CLIUtils/CLI11/releases/download/v2.7.2/CLI11.hpp
+- License source: https://raw.githubusercontent.com/CLIUtils/CLI11/v2.7.2/LICENSE
+- Vendored files: upstream release single header `CLI11.hpp` and `LICENSE` only
+- Header SHA-256: `ffa9a30da295c5858fb5f91f9f45771bab09471d7010a34c7c68c857a330dd76`
+- License SHA-256: `cfc76368aef8f51868fa1cda6bcfa26e583406a4cf8e48e725e7624df24d8855`
+- License: [BSD-3-Clause](../include/tos/vendor/cli11/LICENSE)
+- Local modifications: none
+
+`<tos/base/cli.h>` exposes the upstream `CLI::` API directly. It requires no
+runtime library, separate CMake target, or network download. CLI11 parsing and
+help/version exceptions are handled at application boundaries; no tos parser
+compatibility layer is provided. The tos entry header marks the upstream include
+as a Clang system header to contain libc++ codecvt deprecation diagnostics under
+`-Werror`; the upstream files remain unchanged. When updating, replace the release header and
+license, record their new checksums, and run the integration tests on all three
+platforms.

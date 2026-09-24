@@ -784,41 +784,15 @@ if (!source || !port || source.value() != "file" || port.value() != 443) {
 
 ## 命令行参数
 
-`<tos/base/command_line.h>` 提供独立于 `App`、配置和环境的 UTF-8 命令行解析器。传入的参数数组不含 `argv[0]`；Windows 调用方应先在 `wmain` 中将参数转换为 UTF-8。畸形 UTF-8 或嵌入 NUL 的参数会被拒绝。它支持长选项、短选项、必填值、可重复选项、位置参数和 `--` 分隔符。`-h`/`--help` 与 `-V`/`--version` 是保留的内置动作，解析到任一动作后会忽略后续参数。解析结果独立拥有全部文本，适合跨线程只读使用；规格或参数错误返回 `Status`，分配异常直接传播。此 API 不把命令行映射到 `Config`，配置装配仍留待后续组件。
+`<tos/base/cli.h>` 提供内置的 [CLI11 2.7.2](https://github.com/CLIUtils/CLI11/releases/tag/v2.7.2)，直接使用上游 `CLI::` 命名空间。它是 header-only 库，支持长短选项、类型转换和校验、重复值、位置参数、子命令、帮助与版本输出；链接 `tos::base` 即可使用，无需额外 CMake target 或构建时下载。版本、来源、校验和及 BSD-3-Clause 许可证见 `third_party/README.md`。
 
-```cpp
-#include <iostream>
-#include <string_view>
-#include <vector>
+使用 `CLI::App` 定义命令，`add_option()` 绑定选项值，`add_flag()` 绑定开关；`parse(argc, argv)` 接收含程序名的原生参数，而 `parse(std::vector<std::string>&)` 接收**倒序且不含程序名**的参数并修改该容器。绑定变量必须在解析期间有效；同一个 `CLI::App` 不可被并发解析或修改。输入错误抛出 `CLI::ParseError`，帮助和版本分别通过 `CLI::CallForHelp` / `CLI::CallForVersion` 表达，须先于通用解析错误处理。应用边界应捕获这些异常，并将预期输入错误转换为 `tos::Status` / `tos::Result<T>`；分配异常继续传播。Windows 可沿用 `wmain` 和 `tos::WideToUtf8` 转换参数。
 
-#include "tos/base/command_line.h"
+### 0.x 迁移说明
 
-const tos::CommandLineSpec spec{
-    "tos-tool",
-    "1.0.0",
-    "Example command.",
-    {{"config", 'c', tos::CommandLineOptionValueMode::kRequired, false, "FILE",
-      "Read configuration."},
-     {"verbose", 'v', tos::CommandLineOptionValueMode::kNone, false, "", "Verbose output."}},
-};
-const std::vector<std::string_view> arguments{"--config", "app.yaml", "serve"};
-auto parsed = tos::ParseCommandLine(arguments, spec);
-if (!parsed) {
-    return 1;
-}
-if (parsed->action() == tos::CommandLineAction::kHelp) {
-    std::cout << tos::FormatCommandLineHelp(spec);
-    return 0;
-}
-if (parsed->action() == tos::CommandLineAction::kVersion) {
-    std::cout << tos::FormatCommandLineVersion(spec);
-    return 0;
-}
-const auto config_path = parsed->Value("config");
-if (!config_path || !parsed->Has("verbose")) {
-    return 1;
-}
-```
+自研的 `<tos/base/command_line.h>`、`tos::CommandLineSpec`、`tos::CommandLine`、`tos::ParseCommandLine` 和帮助/版本格式化函数已移除，不保留兼容封装。调用方改为包含 `<tos/base/cli.h>` 并使用 CLI11 原生 API。CLI11 自身不承诺原解析器的 UTF-8/NUL 校验、遇到帮助/版本立即忽略后续参数、错误码或帮助文本格式；需要这些策略时应在应用边界明确处理。
+
+Agent 的实际接入见 `apps/agent/src/core/command_line.cpp`：保留 UTF-8/NUL 校验、原有长短选项、帮助/版本无需配置文件、成功退出码 0 和输入错误退出码 2。未知参数、缺值、重复选项均被拒绝，重复选项现在返回 `kInvalidArgument`，不再返回 `kAlreadyExists`。Agent 没有位置参数，因此以前被忽略的位置参数现在会报错；帮助/版本的解析优先级及文本格式采用 CLI11 行为：例如 `--help --config` 会因缺值报错，而 `--unknown --help` 会显示帮助；帮助与版本同时出现时优先显示帮助。所有参数先经过 UTF-8/NUL 校验，即使位于 `--help` 之后也不例外。YAML 加载和配置覆盖仍由 Agent 配置层负责，不启用 CLI11 的配置文件或环境变量自动读取。
 
 ## 进程环境
 

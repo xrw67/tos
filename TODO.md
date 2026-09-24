@@ -18,7 +18,7 @@
 | Core | `App`、`Context`、`Module`、依赖 DAG、启动回滚和反向停止 | 已完成（`tosapp`/`tos::app`）；Runtime 及调度能力留待后续 |
 | 通信 | 非拥有的类型化 `ServiceRegistry`、同步 `EventBus` 和 RAII 订阅 | 已完成：`Context` 支持显式服务指针注册、查询和注销，以及线程安全的同步 EventBus；异步 FIFO 与背压不在当前范围内 |
 | Task | `Executor`、有界 `ThreadPool`、future、取消、单调时钟 `Scheduler` | 已完成：Executor、有界 ThreadPool、future、协作取消、统计、幂等关闭和单调 Scheduler 已实现 |
-| 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；配置文件加载、环境变量、CLI、模式校验和 FeatureFlags 未实现 |
+| 配置与应用工具 | JSON/YAML、分层配置、类型/模式校验、reload、FeatureFlags、CLI 参数、环境读取 | 部分完成：JSON/YAML 配置树、点路径类型化读取、合并、快照式 reload、手动 `LayeredConfig` 和来源追踪已实现；CLI 参数解析由内置 CLI11 提供；配置来源适配、模式校验和 FeatureFlags 未实现 |
 | 日志与诊断 | 同步/异步 logger、sink、轮转、结构化字段、诊断上下文 | 部分完成：同步线程安全 Logger、控制台、按大小滚动 JSON Lines 文件、强类型字段与 flush/shutdown 已实现；异步队列和诊断上下文未实现 |
 | Foundation 扩展 | 内存资源/内存池、时钟、JSON/二进制/Protobuf 序列化、OpenSSL 加密 | 部分完成：`tos::span`、不依赖 OpenSSL 的 Base64，以及基于 OpenSSL 的摘要、RSA 和 Ed25519 已实现；内存资源、二进制 codec 与 Protobuf 未实现 |
 | 可观测性 | Counter/Gauge/Histogram、Prometheus 文本、Health、trace/span、W3C 与可选 OpenTelemetry | 未开始 |
@@ -53,7 +53,7 @@
   - 验收：手动时钟使定时相关测试确定性；非法时间文本返回结构化错误。
 - [x] `P1-02` 实现 `tos::config`：JSON/YAML 配置树、点路径类型化读取、必填/类型校验、合并与不可见部分更新的快照式 reload。
   - 验收：错误精确到路径；并发读取、格式错误、合并和 reload 一致性都有测试。
-- [ ] `P1-03` 补齐分层配置的来源适配、环境变量和命令行：现有 `LayeredConfig` 已支持调用方手动提供具名层、确定性合并和来源追踪；新增 API 固定采用 defaults < file < environment < CLI 的优先级，并支持配置文件加载、长短选项、重复值、位置参数、`--help` 与 `--version`。
+- [ ] `P1-03` 补齐分层配置的来源适配、环境变量和命令行：现有 `LayeredConfig` 已支持调用方手动提供具名层、确定性合并和来源追踪；CLI 解析使用内置 CLI11，不再维护自研解析器；后续来源适配固定采用 defaults < file < environment < CLI 的优先级，并支持配置文件加载及 CLI11 解析结果到配置层的映射。
   - 验收：端到端示例验证覆盖顺序、未知参数和缺参失败，JSON 与 YAML 输入均有覆盖。
 - [ ] `P1-04` 实现只读布尔 `FeatureFlags`，绑定配置中的固定前缀；不做远程同步、灰度或用户分群。
   - 验收：非法名称/类型、默认值和 reload 后立即可见均有测试。
