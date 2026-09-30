@@ -96,8 +96,8 @@ and synchronization of the referenced storage.
 - License: Apache License 2.0; see the system package's distributed license
 - CMake requirement: `find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)`
 
-`tos::base` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
-`<tos/base/crypto.h>`. Consumers need the OpenSSL headers and `libcrypto` available
+`tos::crypto` links `OpenSSL::Crypto`; no OpenSSL public header is exposed by
+`<tos/base/crypto.h>`. Consumers enabling crypto need the OpenSSL headers and `libcrypto` available
 when configuring and linking. This dependency is discovered locally and is never
 downloaded by tos. Because it is supplied by the build environment, no vendored
 archive checksum applies; deployments must track their package manager's OpenSSL
@@ -124,3 +124,16 @@ as a Clang system header to contain libc++ codecvt deprecation diagnostics under
 `-Werror`; the upstream files remain unchanged. When updating, replace the release header and
 license, record their new checksums, and run the integration tests on all three
 platforms.
+
+## libcurl
+
+- Delivery: system development package, not vendored
+- Upstream: https://curl.se/libcurl/
+- License: curl license; see the development package's COPYING file
+- CMake: Config package preferred, CMake FindCURL module as fallback
+
+Only `TOS_ENABLE_HTTP=ON` requires libcurl. `tos::http` links `CURL::libcurl`;
+its static transitive dependencies and TLS backend belong to that imported target.
+The public HTTP header exposes no curl types. No dependency is downloaded or
+bundled in the tos installation; deployments track their package manager's version
+and security updates. Base and Application do not require OpenSSL or libcurl.

@@ -1,77 +1,44 @@
 cmake_minimum_required(VERSION 3.24)
-
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake" ${CMAKE_MODULE_PATH})
-
-project(tos LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+project(tos VERSION 0.1.0 LANGUAGES CXX)
 
 option(BUILD_TESTING "Build tests" ${PROJECT_IS_TOP_LEVEL})
 option(TOS_BUILD_EXAMPLES "Build tos examples" ${PROJECT_IS_TOP_LEVEL})
+option(TOS_ENABLE_CRYPTO "Build crypto and certificate support (OpenSSL 3)" OFF)
+option(TOS_ENABLE_HTTP "Build HTTP support (libcurl)" OFF)
+option(TOS_ENABLE_APP "Build the Application framework" ON)
+option(TOS_INSTALL "Generate tos installation rules" ${PROJECT_IS_TOP_LEVEL})
 
-if(MSVC)
-    # 使用UNICODE字符集
-    add_definitions(-D_UNICODE -DUNICODE)
-
-    # 禁止代码优化
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Od /DNDEBUG")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Od /DNDEBUG")
-
-    # Release也生成pdb文件
-    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Zi")
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE
-        "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
-    set(CMAKE_SHARED_LINKER_FLAGS_RELEASE
-        "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG /OPT:REF /OPT:ICF")
-
-    add_compile_options(
-        /utf-8 # 编译时使用UTF-8编码
-        /MP # 开启多线程编译
-        /W3 # 启用项目既定警告等级
-        /WX # 将警告视为错误
-        /DNOMINMAX # 禁用标准库提供的max和min
-        /DWIN32_LEAN_AND_MEAN # 减少头文件包含
-        /D_CRT_SECURE_NO_WARNINGS # 禁用安全函数
-        /D_SCL_SECURE_NO_WARNINGS #
-    )
-endif()
-
-if(LINUX)
-    # 设置RPATH: $ORIGIN表示App同级目录
-    set(CMAKE_INSTALL_RPATH "$ORIGIN")
-
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O0 -rdynamic -g")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -rdynamic -g")
-
-    include(ccache) # 加载ccache
-endif()
-
-# Keep compiler diagnostics fatal on every supported platform. Linux already uses this policy;
-# Apple Clang and other GNU-compatible compilers must receive the same quality gate.
-if(MSVC)
-    # /W4 and /WX are configured above with the Windows toolchain options.
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
-    add_compile_options(-Wall -Wextra -Werror)
-endif()
-
-find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
-find_package(CURL CONFIG REQUIRED)
+include(GNUInstallDirs)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/TosCURL.cmake")
 find_package(Threads REQUIRED)
 
-add_library(
-    tosbase
-    STATIC
+# Private diagnostics must not change a parent's flags or a consumer's build policy.
+function(tos_target_defaults target)
+    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W3 /WX /MP)
+        target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS _SCL_SECURE_NO_WARNINGS)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+    endif()
+endfunction()
+
+function(tos_component target component)
+    add_library(tos::${component} ALIAS ${target})
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${component})
+    target_include_directories(${target} PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+    target_compile_features(${target} PUBLIC cxx_std_17)
+    tos_target_defaults(${target})
+endfunction()
+
+add_library(tosbase STATIC
     src/base/base64.cpp
     src/base/atomic_file_writer.cpp
-    src/base/certificate.cpp
-    src/base/crypto.cpp
     src/base/dynamic_library.cpp
     src/base/environment.cpp
     src/base/filesystem.cpp
-    src/base/http.cpp
     src/base/logging.cpp
     src/base/network.cpp
     src/base/process.cpp
@@ -79,36 +46,59 @@ add_library(
     src/base/scheduler.cpp
     src/base/system.cpp
     src/base/thread_pool.cpp)
-add_library(tos::base ALIAS tosbase)
-target_include_directories(tosbase PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tosbase PUBLIC cxx_std_17)
-target_link_libraries(tosbase PUBLIC OpenSSL::Crypto CURL::libcurl Threads::Threads ${CMAKE_DL_LIBS})
+tos_component(tosbase base)
+target_link_libraries(tosbase PUBLIC Threads::Threads PRIVATE ${CMAKE_DL_LIBS})
 if(WIN32)
-    target_link_libraries(tosbase PUBLIC Advapi32 Kernel32 Ws2_32)
+    target_link_libraries(tosbase PRIVATE Advapi32 Kernel32 Ws2_32)
+    target_compile_definitions(tosbase PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+    if(MSVC)
+        target_compile_options(tosbase PUBLIC /utf-8)
+    endif()
 endif()
 
-add_library(
-    tosapp
-    STATIC
-    src/app/app.cpp
-    src/app/context.cpp
-    src/app/debug.cpp
-    src/app/event_bus.cpp
-    src/app/module_registry.cpp
-    src/app/service_registry.cpp)
-add_library(tos::app ALIAS tosapp)
-target_include_directories(tosapp PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_features(tosapp PUBLIC cxx_std_17)
-target_link_libraries(tosapp PUBLIC tos::base)
+set(tos_components base)
+if(TOS_ENABLE_CRYPTO)
+    find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+    add_library(toscrypto STATIC src/base/crypto.cpp src/base/certificate.cpp)
+    tos_component(toscrypto crypto)
+    target_link_libraries(toscrypto PUBLIC tos::base PRIVATE OpenSSL::Crypto)
+    list(APPEND tos_components crypto)
+endif()
+
+if(TOS_ENABLE_HTTP)
+    tos_find_curl()
+    if(NOT CURL_FOUND)
+        message(FATAL_ERROR "TOS_ENABLE_HTTP requires libcurl development files (CURL::libcurl)")
+    endif()
+    add_library(toshttp STATIC src/base/http.cpp)
+    tos_component(toshttp http)
+    target_link_libraries(toshttp PUBLIC tos::base PRIVATE CURL::libcurl)
+    list(APPEND tos_components http)
+endif()
+
+if(TOS_ENABLE_APP)
+    add_library(tosapp STATIC
+        src/app/app.cpp
+        src/app/context.cpp
+        src/app/debug.cpp
+        src/app/event_bus.cpp
+        src/app/module_registry.cpp
+        src/app/service_registry.cpp)
+    tos_component(tosapp app)
+    target_link_libraries(tosapp PUBLIC tos::base)
+    list(APPEND tos_components app)
+endif()
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CheckDependencies.cmake")
+if(TOS_INSTALL)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Install.cmake")
+endif()
 
 include(CTest)
-
 add_subdirectory(third_party)
-
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
-
 if(TOS_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()

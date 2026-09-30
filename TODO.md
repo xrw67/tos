@@ -26,7 +26,7 @@
 | IPC | Unix domain socket、Windows named pipe、共享内存和跨进程锁 | 未开始 |
 | Platform | UTF-8 path、系统/进程、文件读写与观察、终止信号、daemon/service host、崩溃报告 | 未开始 |
 | 扩展模块 | HTTP client/server/health、SQLite 连接池、Filesystem、Process、签名软件更新 | 未开始 |
-| 工程交付 | 独立 CMake targets、可选 feature、安装导出、`find_package`、sanitizer/fuzz/coverage、示例与合同测试 | 部分完成：接口 target、单测/示例/CI 已有；无安装包、组件 targets、质量预设或集成测试 |
+| 工程交付 | 独立 CMake targets、可选 feature、安装导出、`find_package`、sanitizer/fuzz/coverage、示例与合同测试 | 部分完成：接口 target、单测/示例/CI 已有；已有组件 targets、可迁移安装包与独立消费测试；质量预设待完成 |
 
 ## 实施顺序
 
@@ -42,8 +42,8 @@
   - 验收：操作数恰好求值一次，错误以 `std::move` 传播，成功值可移动提取；在 `if`/`else`、临时对象、命名对象和异常构造路径中均有编译与运行测试，宏不耦合 logger 或其他 Runtime 组件。
 - [x] `P0-03` 将基础能力收敛为 `tosbase` 静态库，并公开 `tos::base`；模块化 Application 作为独立 `tosapp`/`tos::app` 构建，依赖方向保持单向。
   - 验收：两个目标传递所需依赖；minimal、完整测试/示例和 `tos::app` 消费目标均可构建。
-- [ ] `P0-04` 增加安装、导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。
-  - 验收：全新临时消费工程分别以两种方式构建并运行。
+- [x] `P0-04` 增加安装、组件独立导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。base/app 不依赖 crypto/HTTP，后二者默认关闭且需显式链接。
+  - 验收：`tests/verify_components.py` 验证五种组合、源码/安装消费、安装前缀迁移、组件及版本错误；三平台 CI 执行同一验证。
 - [ ] `P0-05` 建立质量门禁：Debug/Release、ASan/UBSan、TSan（支持的平台）、clang-format、clang-tidy、coverage、fuzz 的 CMake presets；为 CTest 统一标签和超时。
   - 验收：本机与 CI 均执行相应矩阵，失败信息可定位到组件和测试。
 

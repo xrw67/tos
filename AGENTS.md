@@ -3,8 +3,8 @@
 ## Project Scope
 
 `tos` is a C++17 application-foundation library. Its shipped public APIs use
-the `tos::` namespace and `<tos/...>` headers; `tos::base` and `tos::app` are
-the public CMake consumer targets (`tos::app` depends on `tos::base`). GoogleTest tests,
+the `tos::` namespace and `<tos/...>` headers; `tos::base`, `tos::crypto`, `tos::http`, and `tos::app` are
+the public CMake consumer targets. Optional components depend on `tos::base`. GoogleTest tests,
 examples, and Linux/macOS/Windows Release CI are in place. Treat items in
 `TODO.md` as planned work, not existing behavior.
 
@@ -54,7 +54,7 @@ or a dependency on Git submodules.
 Use an out-of-source build directory. The standard full validation is:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTOS_BUILD_EXAMPLES=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTOS_BUILD_EXAMPLES=ON -DTOS_ENABLE_CRYPTO=ON -DTOS_ENABLE_HTTP=ON
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error --timeout 30
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
@@ -95,9 +95,20 @@ Do not commit build products, generated CMake files, or local IDE state.
 
 ## CMake And Dependency Rules
 
-- `tos::base` is backed by `tosbase`; `tos::app` is backed by `tosapp` and
-  publicly depends on `tos::base`. `add_subdirectory` consumers must continue
-  to work with tests and examples off by default.
+- `tos::base`, `tos::crypto`, `tos::http`, and `tos::app` are backed by static
+  targets `tosbase`, `toscrypto`, `toshttp`, and `tosapp`. crypto/HTTP default off;
+  app defaults on. Each optional component depends on base; base/app must not
+  acquire OpenSSL or CURL dependencies. HTTP's curl backend may itself need TLS libraries.
+- Keep source and installed target names equivalent. `TOS_INSTALL` defaults to
+  top-level only; `find_package(tos)` imports base, and named components load only
+  their dependency closure. Install no private headers, tests, or GoogleTest.
+- After packaging changes run
+  `python3 tests/verify_components.py --work-dir build/components --jobs 2`
+  (use `--prefix-path` for preinstalled dependencies).
+  It verifies all five combinations, source consumers, relocated installs,
+  versions, missing components, and optional dependency failures.
+- `add_subdirectory` consumers must continue to work with tests, examples, and
+  installation off by default, respecting explicitly configured parent options.
 - `tosbase` must not depend on `tosapp` or `tos::app`: code in `src/base/` and
   public headers in `include/tos/base/` must not include Application headers.
   Preserve the top-level CMake configure-time checks for both source includes

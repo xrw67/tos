@@ -16,60 +16,98 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 - fkYAML 0.4.4 的单头文件和 MIT 许可证位于 `include/tos/vendor/fkyaml/`；包含 `<tos/base/yaml.h>` 即可使用，不产生运行时库或网络下载。
 - fmt 12.2.0 的公开头文件和 MIT 许可证位于 `include/tos/vendor/fmt/`；包含 `<tos/base/format.h>` 即可在 header-only 模式下使用，不产生额外链接依赖或网络下载。
 - span-lite 0.11.0 的单头文件和 Boost Software License 1.0 位于 `include/tos/vendor/nonstd/`；包含 `<tos/base/span.h>` 后可使用 `tos::span`，不产生运行时库或网络下载。
-- OpenSSL 3.0 或更新版本的开发包，包含头文件和 `libcrypto`。macOS 使用 `brew install openssl@3` 后应以 `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)` 配置；Windows 需要提供与 MSVC 架构匹配的 OpenSSL 开发包。
-- libcurl 开发包，包含头文件和可链接的 `libcurl`；CMake 通过 `CURL::libcurl` 使用它。
-- 配置和构建不会下载依赖，也无需初始化 Git 子模块；OpenSSL 和 libcurl 必须由环境预先安装。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
+- 启用 `TOS_ENABLE_CRYPTO` 时需要 OpenSSL 3.0 或更新版本的开发包，包含头文件和 `libcrypto`。macOS 使用 `brew install openssl@3` 后应以 `-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)` 配置；Windows 需要提供与 MSVC 架构匹配的 OpenSSL 开发包。
+- 启用 `TOS_ENABLE_HTTP` 时需要 libcurl 开发包，包含头文件和可链接的 `libcurl`；CMake 通过 `CURL::libcurl` 使用它。
+- 配置和构建不会下载依赖，也无需初始化 Git 子模块；启用组件需要的 OpenSSL/libcurl 必须由环境预先安装；默认 base/app 构建不需要它们。仅启用测试时构建 GoogleTest，当前不构建 GoogleMock。
 
 ### 本地编译与运行
 
 在仓库根目录执行，三平台使用相同的命令：
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTOS_BUILD_EXAMPLES=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTOS_BUILD_EXAMPLES=ON -DTOS_ENABLE_CRYPTO=ON -DTOS_ENABLE_HTTP=ON
 cmake --build build --config Release --parallel
 ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error --timeout 30
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、Network、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、字节序和 IPv4/IPv6 转换、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+以下为全量构建命令；禁用组件时，相应测试和示例不构建。`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、Network、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、字节序和 IPv4/IPv6 转换、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
 | 构建选项 | 独立构建默认值 | 作用 |
 | --- | --- | --- |
 | `BUILD_TESTING` | `ON` | 引入 GoogleTest，构建测试程序，并注册 CTest 检查 |
-| `TOS_BUILD_EXAMPLES` | `ON` | 构建最小示例；同时开启测试时注册示例检查 |
+| `TOS_BUILD_EXAMPLES` | `ON` | 构建已启用组件的示例；同时开启测试时注册示例检查 |
+| `TOS_ENABLE_CRYPTO` | `OFF` | 构建 crypto、certificate，要求 OpenSSL 3 Crypto |
+| `TOS_ENABLE_HTTP` | `OFF` | 构建 HTTP，要求 libcurl |
+| `TOS_ENABLE_APP` | `ON` | 构建 Application 框架 |
+| `TOS_INSTALL` | `ON` | 生成安装规则；作为子工程默认 `OFF` |
 
-通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时构建 `tosbase` 和独立的 `tosapp` 静态库；`tos::base` 导出基础 API，`tos::app` 导出 Application 框架并公开依赖 `tos::base`。
+通过 `-DBUILD_TESTING=OFF` 或 `-DTOS_BUILD_EXAMPLES=OFF` 可分别关闭这些功能；关闭测试后仍可单独构建示例。两者同时关闭时仅构建启用的组件静态库；`tos::base` 导出基础 API，`tos::app` 导出 Application 框架并公开依赖 `tos::base`。
 
 ### 编写单元测试
 
-在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::app`（基础测试也可直接链接 `tos::base`）和 `GTest::gtest_main`，无需自行编写 `main()`。
+在 `tests/` 中新增测试源文件，使用 GoogleTest 的 `TEST` 或 `TEST_F` 定义用例，并将源文件加入 `tests/CMakeLists.txt` 中的 `tos_unit_tests` 目标。该目标链接 `tos::base`、已启用的组件和 `GTest::gtest_main`，无需自行编写 `main()`。
 
 CMake 的 `gtest_discover_tests()` 会在 CTest 运行前自动发现用例，统一添加 `tos.` 名称前缀、`unit` 标签和 30 秒超时；新增用例无需逐个修改 CI。分配回归测试使用独立的 `tos_allocation_tests` 可执行文件，保留 6 项检查：成功零分配、Status 移动零分配、Result 状态借用及提取零分配、字符串右值转移缓冲区，以及两种分配失败清理路径。仅在被测操作期间统计分配和释放，避免影响常规测试。
 
 退出阶段的状态检查由独立进程 `tos_result_shutdown_test` 验证，保留已移动错误、无活动值两个回归场景，同样带有 `unit` 标签。
 
-第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/base/json.h>`、`<tos/base/yaml.h>`、`<tos/base/format.h>` 与 `<tos/base/span.h>` 提供。`<tos/base/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现，`<tos/base/http.h>` 由系统 libcurl 实现。完整检出且已安装 OpenSSL 与 libcurl 开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
+第三方库统一由 `third_party/CMakeLists.txt` 管理，GoogleTest 仅在测试开启时从仓库内源码构建；nlohmann/json、fkYAML、fmt 和 span-lite 分别通过公开 `<tos/base/json.h>`、`<tos/base/yaml.h>`、`<tos/base/format.h>` 与 `<tos/base/span.h>` 提供。`<tos/base/crypto.h>` 由系统 OpenSSL 3 的 `libcrypto` 实现，`<tos/base/http.h>` 由系统 libcurl 实现。完整检出且已安装启用组件所需的开发包后可离线构建，不使用 FetchContent 或 `FETCHCONTENT_SOURCE_DIR_GOOGLETEST` 配置。
 
-### 接入其他工程
+### 接入其他工程与安装分发
 
-将仓库放入消费工程的 `third_party/tos`，在该工程的 CMake 配置中添加：
+公开头文件路径和 C++ API 不变；CMake 目标按功能显式链接：
+
+| 目标 | 能力 | 依赖 |
+| --- | --- | --- |
+| `tos::base` | 基础类型、配置、日志、文件、进程、任务等 | Threads 和必要的系统库 |
+| `tos::crypto` | 摘要、密钥、签名与证书 | base、OpenSSL 3 Crypto |
+| `tos::http` | 同步 HTTP、上传下载 | base、libcurl |
+| `tos::app` | Application 框架 | base |
+
+默认构建 base/app，crypto、HTTP 默认关闭。HTTP 不依赖 tos crypto，但所选 libcurl 的 TLS 后端可能依赖 OpenSSL；该依赖由 libcurl 的 CMake 目标负责。CURL 优先查找 Config 包，缺失时回退 CMake FindCURL。静态 libcurl 的消费环境必须提供完整的传递链接依赖，推荐其 Config 包。
+
+源码消费：
 
 ```cmake
+set(TOS_ENABLE_CRYPTO ON CACHE BOOL "Enable crypto")
+set(TOS_ENABLE_HTTP ON CACHE BOOL "Enable HTTP")
 add_subdirectory(third_party/tos)
-target_link_libraries(your_app PRIVATE tos::base)
+target_link_libraries(your_app PRIVATE tos::app tos::crypto tos::http)
 ```
 
-`your_app` 应由消费工程先通过 `add_executable` 或 `add_library` 定义。`tos::base` 传递头文件路径、至少 C++17 的编译要求，以及 OpenSSL、libcurl、线程和 Windows 注册表所需的系统链接依赖；消费工程自行设置其目标是否启用编译器语言扩展。
+作为子工程，测试、示例、安装规则默认关闭；尊重父工程显式设置的选项。只使用基础组件时省略两个开启选项并链接 `tos::base`；还可用 `TOS_ENABLE_APP=OFF` 关闭 app。
 
-作为子工程时，两个构建选项默认关闭；若上层工程或 CMake 缓存已经设置了同名选项，则尊重现有值。当前未提供安装导出或 `find_package` 接入。
+构建和安装（仅安装自身静态库、启用组件的公开头文件、vendor 头文件及许可证）：
 
-需要模块化 Application 时，将链接目标改为 `tos::app`；它会传递 `tos::base` 的头文件、C++17、OpenSSL、libcurl 和线程依赖：
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DTOS_BUILD_EXAMPLES=OFF -DTOS_ENABLE_CRYPTO=ON -DTOS_ENABLE_HTTP=ON
+cmake --build build --config Release --parallel
+cmake --install build --config Release --prefix /absolute/path/to/tos-install
+```
+
+安装包消费：
 
 ```cmake
-target_link_libraries(your_app PRIVATE tos::app)
+find_package(tos 0.1 CONFIG REQUIRED COMPONENTS app crypto http)
+target_link_libraries(your_app PRIVATE tos::app tos::crypto tos::http)
 ```
+
+配置消费工程时传入 `-DCMAKE_PREFIX_PATH=/absolute/path/to/tos-install`。无 `COMPONENTS` 的 `find_package(tos CONFIG REQUIRED)` 仅导入 `tos::base`。即使安装了所有组件，只请求 base/app 也不会查找 OpenSSL 或 CURL。必需组件未知、未安装或缺少依赖时配置失败；`OPTIONAL_COMPONENTS` 缺失时通过 `tos_<component>_FOUND=FALSE` 报告。允许多次 `find_package` 逐步请求组件。
+
+安装前缀可整体迁移，`CMAKE_INSTALL_LIBDIR`、`CMAKE_INSTALL_INCLUDEDIR`、`CMAKE_INSTALL_DATADIR` 必须是相对目录。第三方动态库或静态库不随 tos 安装，消费方负责提供；使用兼容的编译器、架构和 C++ 运行时。当前包版本 `0.1.0`，版本匹配采用 `SameMinorVersion`，不承诺跨次版本 ABI 兼容。
+
+**0.1 迁移说明：** 原先链接 base/app 即可使用 crypto/HTTP 的隐式依赖已移除。使用这些 API 的工程必须显式开启并链接相应组件；直接调用 OpenSSL API 的目标应另行声明 `OpenSSL::Crypto`。编译告警和优化选项不再通过全局变量影响消费工程。
+
+组件与安装验证（Python 3 标准库，依赖需预先安装）：
+
+```sh
+python3 tests/verify_components.py --work-dir build/components --jobs 2
+```
+
+该命令验证五种组合、源码接入、安装目录迁移、版本检查、缺失组件和重复查找。可用 `--prefix-path` 指定第三方依赖，用 `--generator "Visual Studio 17 2022"` 验证多配置生成器；日志保留在专用工作目录。三平台 CI 运行同一流程。
 
 ### Application 框架
 
@@ -143,7 +181,7 @@ if (!registered || !debug.Execute("status", snapshot) ||
 void 处理器。`RegisterHandler()` 现在还要求一条非空、单行描述，供内置 `help` 输出；
 `DebugController` 不再接受 `App&` 构造参数，应用标准命令改由 `app.debug()` 提供。
 
-0.x 构建迁移：`tos::tos` 以及 `tos::crypto`、`tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
+0.x 构建迁移：`tos::tos` 以及 `tos::filesystem`、`tos::logging`、`tos::process`、`tos::registry` 已移除。基础 API 调用方应链接 `tos::base`，Application 调用方应链接 `tos::app`，crypto/HTTP 调用方另外链接 `tos::crypto`/`tos::http`；基础头已从 `<tos/name.h>` 迁移为 `<tos/base/name.h>`，任务入口为 `<tos/base/executor.h>`、`<tos/base/thread_pool.h>` 和 `<tos/base/scheduler.h>`，Application 入口为 `<tos/app/app.h>`，独立 Context、服务、模块与同步事件接口位于 `<tos/app/context.h>`、`<tos/app/service.h>`、`<tos/app/module.h>` 和 `<tos/app/event.h>`，C++ 命名空间仍为 `tos::`。Application 服务 API 已从 `shared_ptr`、`ServiceToken` 和手动 `PutService(T*)` 迁移到非拥有的 `RegisterService(T*)`、返回 move-only `ServiceHandle<T>` 的 `GetService<T>()` 和 `UnregisterService(T*)`；句柄通过析构或 `Reset()` 自动归还借用。Config/Logger/Executor/Scheduler 不再通过 ServiceRegistry 获取，改用 `Context::config()`、`Context::logger()`、`Context::executor()` 和 `Context::scheduler()`。
 
 ### 自动化验证
 
@@ -669,7 +707,7 @@ PEM、OpenSSL 和参数错误均通过 `Result`/`Status` 返回，不暴露 Open
 `DownloadFile()` 和 `UploadFile()` 高级封装。所有接口同时支持 HTTP/HTTPS；请求选项可配置
 headers、超时、取消和 CA/mTLS 文件。HTTP 状态码（包括 4xx/5xx）作为响应返回，网络、超时、
 取消和配置失败通过 `Status` 返回。文件上传使用原始字节流，下载使用临时文件流式写入，只有
-2xx 响应才原子替换目标文件。libcurl 的全局初始化、资源释放和 TLS 校验由 `tos::base` 管理，
+2xx 响应才原子替换目标文件。libcurl 的全局初始化、资源释放和 TLS 校验由 `tos::http` 管理，
 取消指针仅在请求期间借用，不转移所有权。
 
 `<tos/base/network.h>` 提供主机字节序与网络字节序之间的 16/32/64 位整数转换，以及

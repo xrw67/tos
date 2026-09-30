@@ -1,8 +1,6 @@
 add_executable(tos_unit_tests
     base_test.cpp
     cli11_test.cpp
-    certificate_test.cpp
-    http_test.cpp
     status_test.cpp
     result_test.cpp
     time_test.cpp
@@ -19,70 +17,98 @@ add_executable(tos_unit_tests
     registry_test.cpp
     strconv_test.cpp
     filesystem_test.cpp
-    crypto_test.cpp
     dynamic_library_test.cpp
     logging_test.cpp
     network_test.cpp
     scheduler_test.cpp
     thread_pool_test.cpp
-    application_test.cpp
-    debug_test.cpp
-    event_bus_test.cpp
 )
 
-# Each public base header must compile without relying on another header being included first.
-file(GLOB TOS_BASE_PUBLIC_HEADERS CONFIGURE_DEPENDS
-     RELATIVE "${PROJECT_SOURCE_DIR}/include/tos/base"
-     "${PROJECT_SOURCE_DIR}/include/tos/base/*.h")
+target_link_libraries(tos_unit_tests PRIVATE tos::base GTest::gtest_main)
+tos_target_defaults(tos_unit_tests)
+if(TOS_ENABLE_CRYPTO)
+    target_sources(tos_unit_tests PRIVATE crypto_test.cpp certificate_test.cpp)
+    target_link_libraries(tos_unit_tests PRIVATE tos::crypto OpenSSL::Crypto)
+endif()
+if(TOS_ENABLE_HTTP)
+    target_sources(tos_unit_tests PRIVATE http_test.cpp)
+    target_link_libraries(tos_unit_tests PRIVATE tos::http)
+endif()
+if(TOS_ENABLE_APP)
+    target_sources(tos_unit_tests PRIVATE application_test.cpp debug_test.cpp event_bus_test.cpp)
+    target_link_libraries(tos_unit_tests PRIVATE tos::app)
+endif()
 
+# Compile each installed public header in its own translation unit.
+file(GLOB TOS_PUBLIC_HEADERS CONFIGURE_DEPENDS
+    RELATIVE "${PROJECT_SOURCE_DIR}/include"
+    "${PROJECT_SOURCE_DIR}/include/tos/base/*.h")
+if(NOT TOS_ENABLE_CRYPTO)
+    list(REMOVE_ITEM TOS_PUBLIC_HEADERS tos/base/crypto.h tos/base/certificate.h)
+endif()
+if(NOT TOS_ENABLE_HTTP)
+    list(REMOVE_ITEM TOS_PUBLIC_HEADERS tos/base/http.h)
+endif()
+if(TOS_ENABLE_APP)
+    file(GLOB app_headers CONFIGURE_DEPENDS RELATIVE "${PROJECT_SOURCE_DIR}/include"
+        "${PROJECT_SOURCE_DIR}/include/tos/app/*.h")
+    list(APPEND TOS_PUBLIC_HEADERS ${app_headers})
+endif()
 set(tos_public_header_targets)
 set(tos_public_header_directory "${CMAKE_CURRENT_BINARY_DIR}/public_headers")
 file(MAKE_DIRECTORY "${tos_public_header_directory}")
-foreach(header IN LISTS TOS_BASE_PUBLIC_HEADERS)
-    get_filename_component(header_name "${header}" NAME_WE)
+foreach(header IN LISTS TOS_PUBLIC_HEADERS)
+    string(REPLACE "/" "_" header_name "${header}")
     set(header_source "${tos_public_header_directory}/${header_name}.cpp")
-    file(WRITE "${header_source}" "#include <tos/base/${header}>\nint main() { return 0; }\n")
+    file(WRITE "${header_source}" "#include <${header}>\nint main() { return 0; }\n")
     add_library(tos_public_header_${header_name} OBJECT EXCLUDE_FROM_ALL "${header_source}")
     target_link_libraries(tos_public_header_${header_name} PRIVATE tos::base)
+    tos_target_defaults(tos_public_header_${header_name})
     list(APPEND tos_public_header_targets tos_public_header_${header_name})
 endforeach()
 add_custom_target(tos_public_headers ALL DEPENDS ${tos_public_header_targets})
 
 add_library(tos_dynamic_library_test_module SHARED dynamic_library_test_module.cpp)
 
-add_library(tos_dynamic_module_test_module SHARED dynamic_module_test_module.cpp)
-add_library(tos_dynamic_module_null_test_module SHARED dynamic_module_null_test_module.cpp)
-foreach(target tos_dynamic_module_test_module tos_dynamic_module_null_test_module)
-    target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/include")
-    target_compile_features(${target} PRIVATE cxx_std_17)
-endforeach()
-
 add_executable(tos_process_test_helper process_test_helper.cpp)
 target_link_libraries(tos_process_test_helper PRIVATE tos::base)
 
-add_subdirectory(app_consumer)
-
-target_link_libraries(
-    tos_unit_tests
-    PRIVATE tos::app GTest::gtest_main)
 if(WIN32)
     target_link_libraries(tos_unit_tests PRIVATE Ws2_32)
 endif()
 target_compile_definitions(
     tos_unit_tests
     PRIVATE TOS_DYNAMIC_LIBRARY_TEST_MODULE="$<TARGET_FILE:tos_dynamic_library_test_module>"
-            TOS_DYNAMIC_MODULE_TEST_MODULE="$<TARGET_FILE:tos_dynamic_module_test_module>"
-            TOS_DYNAMIC_MODULE_NULL_TEST_MODULE="$<TARGET_FILE:tos_dynamic_module_null_test_module>"
             TOS_PROCESS_TEST_HELPER="$<TARGET_FILE:tos_process_test_helper>")
 add_dependencies(
     tos_unit_tests
     tos_dynamic_library_test_module
-    tos_dynamic_module_test_module
-    tos_dynamic_module_null_test_module
     tos_process_test_helper)
 
-add_test(NAME tos.ApplicationConsumer COMMAND tos_app_consumer)
-set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT 30)
+if(TOS_ENABLE_APP)
+    add_library(tos_dynamic_module_test_module SHARED dynamic_module_test_module.cpp)
+    add_library(tos_dynamic_module_null_test_module SHARED dynamic_module_null_test_module.cpp)
+    foreach(target tos_dynamic_module_test_module tos_dynamic_module_null_test_module)
+        target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/include")
+        target_compile_features(${target} PRIVATE cxx_std_17)
+        tos_target_defaults(${target})
+        if(WIN32)
+            target_compile_definitions(${target} PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+            if(MSVC)
+                target_compile_options(${target} PRIVATE /utf-8)
+            endif()
+        endif()
+    endforeach()
+
+    add_subdirectory(app_consumer)
+    tos_target_defaults(tos_app_consumer)
+    target_compile_definitions(tos_unit_tests PRIVATE
+        TOS_DYNAMIC_MODULE_TEST_MODULE="$<TARGET_FILE:tos_dynamic_module_test_module>"
+        TOS_DYNAMIC_MODULE_NULL_TEST_MODULE="$<TARGET_FILE:tos_dynamic_module_null_test_module>")
+    add_dependencies(tos_unit_tests tos_dynamic_module_test_module tos_dynamic_module_null_test_module)
+    add_test(NAME tos.ApplicationConsumer COMMAND tos_app_consumer)
+    set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT 30)
+endif()
 
 # A separate process is needed to observe static destruction after main returns.
 add_executable(tos_result_shutdown_test result_shutdown_test.cpp)
@@ -117,3 +143,7 @@ gtest_discover_tests(
     DISCOVERY_TIMEOUT 30
     PROPERTIES LABELS unit TIMEOUT 30
 )
+
+foreach(target tos_dynamic_library_test_module tos_process_test_helper tos_result_shutdown_test tos_allocation_tests)
+    tos_target_defaults(${target})
+endforeach()

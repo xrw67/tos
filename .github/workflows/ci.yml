@@ -10,26 +10,29 @@ permissions:
 
 jobs:
   build-and-test:
-    name: ${{ matrix.os }} / Release
+    name: ${{ matrix.os }} / components and installation
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
-            configure_args: -DCMAKE_CXX_COMPILER=g++
+            generator: Ninja
           - os: macos-14
-            configure_args: -DCMAKE_CXX_COMPILER=clang++
+            generator: Ninja
           - os: windows-2022
-            configure_args: -G "Visual Studio 17 2022" -A x64
+            generator: Visual Studio 17 2022
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Install Linux build and formatting dependencies
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev clang-format-18
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libcurl4-openssl-dev ninja-build clang-format-18
 
       - name: Check source formatting
         if: runner.os == 'Linux'
@@ -39,35 +42,34 @@ jobs:
           ! -path 'include/tos/vendor/*' -print0
           | xargs -0 -r clang-format-18 --dry-run --Werror
 
-      - name: Install OpenSSL 3
+      - name: Install macOS dependencies
         if: runner.os == 'macOS'
         run: |
-          brew install openssl@3
-          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          brew install openssl@3 curl ninja
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl@3);$(brew --prefix curl)" >> "$GITHUB_ENV"
 
-      - name: Locate OpenSSL on Windows
+      - name: Install Windows dependencies
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $root = 'C:\Program Files\OpenSSL-Win64'
-          if (Test-Path "$root\include\openssl\evp.h") {
-            "OPENSSL_ROOT_DIR=$root" >> $env:GITHUB_ENV
-          }
-          openssl version
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install curl:x64-windows openssl:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $prefix = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows"
+          "CMAKE_PREFIX_PATH=$prefix" >> $env:GITHUB_ENV
+          "$prefix/bin" >> $env:GITHUB_PATH
 
-      - name: Configure
+      - name: Test five component combinations and relocated packages
         run: >-
-          cmake -S . -B build
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=ON
-          -DTOS_BUILD_EXAMPLES=ON
-          ${{ matrix.configure_args }}
+          python tests/verify_components.py
+          --work-dir build/components
+          --generator "${{ matrix.generator }}"
+          --config Release --jobs 2
 
-      - name: Build
-        run: cmake --build build --config Release --parallel
-
-      - name: tests
-        run: ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error --timeout 30
-
-      - name: Run example
-        run: ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
+      - name: Upload verification logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tos-${{ matrix.os }}-logs
+          path: |
+            build/components/*.log
+            build/components/**/Testing/Temporary/LastTest.log
