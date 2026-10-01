@@ -2,6 +2,7 @@
 #define TOS_BASE_FILESYSTEM_H_
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -65,6 +66,40 @@ class Path {
     std::string utf8_;
 };
 
+enum class AtomicWriteDurability {
+    kNone,              ///< Atomic visibility without synchronization.
+    kData,              ///< Flush file data before replacement (Windows also uses WRITE_THROUGH).
+    kDataAndDirectory,  ///< Additionally fsync the parent directory; unsupported on Windows.
+};
+
+/// Move-only streaming writer that replaces a target atomically on Commit.
+/// Until Commit, the temporary file is removed by destruction, including on move assignment.
+/// Create borrows the path and owns its copy. Parents must already exist. POSIX temporary files
+/// use mode 0600; Windows uses inherited ACLs. Existing permissions/ACLs are not preserved.
+/// Operations on one writer require external synchronization. I/O failures return classified
+/// Status; allocation/path construction exceptions propagate. Each Commit attempt is terminal.
+/// A failure after replacement (directory flush) leaves the new contents visible; it cannot
+/// roll back. Durability depends on the filesystem/device honoring the OS synchronization calls.
+class AtomicFileWriter final {
+   public:
+    AtomicFileWriter();
+    AtomicFileWriter(const AtomicFileWriter&) = delete;
+    AtomicFileWriter& operator=(const AtomicFileWriter&) = delete;
+    AtomicFileWriter(AtomicFileWriter&&) noexcept;
+    AtomicFileWriter& operator=(AtomicFileWriter&&) noexcept;
+    ~AtomicFileWriter();
+
+    [[nodiscard]] static Result<AtomicFileWriter> Create(
+        const Path& target, AtomicWriteDurability durability = AtomicWriteDurability::kNone);
+    [[nodiscard]] Status Write(std::string_view bytes);
+    [[nodiscard]] Status Commit();
+
+   private:
+    struct Impl;
+    explicit AtomicFileWriter(std::unique_ptr<Impl> impl) noexcept;
+    std::unique_ptr<Impl> impl_;
+};
+
 /// Filesystem entry categories reported by GetFileMetadata without following symlinks.
 enum class FileType { kRegular, kDirectory, kSymlink, kOther };
 
@@ -90,11 +125,18 @@ struct FileMetadata {
 [[nodiscard]] Status WriteTextFile(const Path& path, std::string_view text);
 
 /// Atomically replaces the target with text bytes once the write is complete. A unique temporary
-/// file is created in the target directory and is removed on failures before replacement. This
-/// guarantees atomic visibility to readers on the same filesystem, but does not promise power-loss
-/// durability. Parent directories are not created; I/O failures return Status and allocation
-/// exceptions propagate.
+/// file is created in the target directory and is removed on failures before replacement. The
+/// overload without durability guarantees atomic visibility but makes no power-loss promise;
+/// the explicit overload additionally flushes file data and, when requested, the parent directory.
+/// Parent directories are not created; unsupported durability operations return kUnimplemented.
 [[nodiscard]] Status WriteTextFileAtomic(const Path& path, std::string_view text);
+[[nodiscard]] Status WriteTextFileAtomic(const Path& path, std::string_view text,
+                                         AtomicWriteDurability durability);
+
+/// Synchronizes an existing directory on POSIX. Windows returns kUnimplemented.
+/// Use after creating a child directory whose name must survive restart. No directories are
+/// created; I/O failures return Status and diagnostic allocation exceptions propagate.
+[[nodiscard]] Status SyncDirectory(const Path& path);
 
 /// Creates path and missing parent directories. An existing directory succeeds; an existing
 /// non-directory returns kAlreadyExists. I/O failures return Status and allocation exceptions

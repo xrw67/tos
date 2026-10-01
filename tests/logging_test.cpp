@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -12,8 +13,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "test_util.h"
 #include "tos/base/json.h"

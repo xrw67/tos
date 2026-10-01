@@ -1,10 +1,9 @@
 #include "tos/base/span.h"
 
 #include <array>
+#include <gtest/gtest.h>
 #include <type_traits>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace tos {
 namespace {

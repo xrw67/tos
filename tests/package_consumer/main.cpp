@@ -1,5 +1,9 @@
 #include "tos/base/base64.h"
+#include "tos/base/file_lock.h"
+#include "tos/base/secure_random.h"
+#include "tos/base/termination.h"
 #include "tos/base/thread_pool.h"
+#include "tos/base/uuid.h"
 #ifdef TOS_TEST_APP
 #include "tos/app/app.h"
 #endif
@@ -16,6 +20,16 @@ int main() {
     if (!decoded || decoded->size() != 1 || (*decoded)[0] != 'f') return 1;
     tos::ThreadPool pool(1);
     if (!pool.Shutdown()) return 2;
+    const auto random = tos::SecureRandomBytes(16);
+    const auto uuid = tos::GenerateUuidV4();
+    if (!random || random->size() != 16 || !uuid || !tos::IsUuid(*uuid)) return 7;
+    // Link the platform APIs even in the dependency-free base consumer.
+    if (tos::FileLock::TryAcquire(tos::Path{})) return 8;
+    if (tos::AtomicFileWriter::Create(tos::Path{})) return 9;
+    tos::TerminationController termination;
+    if (!termination.Install()) return 10;
+    termination.RequestStop();
+    if (!termination.Wait(std::chrono::milliseconds(0))) return 11;
 #ifdef TOS_TEST_APP
     tos::AppOptions options;
     options.thread_pool_worker_count = 1;

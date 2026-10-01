@@ -2,14 +2,15 @@
 #include <chrono>
 #include <condition_variable>
 #include <future>
+#include <gtest/gtest.h>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
-
+#include "test_util.h"
 #include "tos/app/event.h"
 
 namespace {
@@ -109,9 +110,17 @@ TEST(EventBusTest, ResetWaitsForOtherThreadCallbacksAndSelfResetDoesNotDeadlock)
 
     tos::Status publish_status;
     std::thread publisher([&] { publish_status = events.PublishSync(NumberEvent{1}); });
+    tos::test::ScopeExit cleanup([&] {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            proceed = true;
+        }
+        released.notify_all();
+        if (publisher.joinable()) publisher.join();
+    });
     {
         std::unique_lock<std::mutex> lock(mutex);
-        ASSERT_TRUE(entered.wait_for(lock, 1s, [&] { return running; }));
+        ASSERT_TRUE(entered.wait_for(lock, 5s, [&] { return running; }));
     }
 
     std::promise<void> reset_started;
@@ -159,9 +168,17 @@ TEST(EventBusTest, ShutdownWaitsForOtherThreadCallbacksAndSupportsConcurrentOper
     auto subscription = std::move(subscription_result).value();
 
     std::thread publisher([&] { static_cast<void>(events.PublishSync(NumberEvent{1})); });
+    tos::test::ScopeExit cleanup([&] {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            proceed = true;
+        }
+        released.notify_all();
+        if (publisher.joinable()) publisher.join();
+    });
     {
         std::unique_lock<std::mutex> lock(mutex);
-        ASSERT_TRUE(entered.wait_for(lock, 1s, [&] { return running; }));
+        ASSERT_TRUE(entered.wait_for(lock, 5s, [&] { return running; }));
     }
     std::future<tos::Status> shutdown =
         std::async(std::launch::async, [&] { return events.Shutdown(); });
@@ -220,6 +237,89 @@ TEST(EventBusTest, AllowsConcurrentSubscriptionPublishingAndReset) {
     subscriptions.join();
     EXPECT_TRUE(stable.Reset());
     EXPECT_GT(callbacks.load(), 0);
+}
+
+TEST(EventBusTest, ResetAndShutdownWaitForEveryActivePublisher) {
+    for (bool shutdown : {false, true}) {
+        tos::EventBus events;
+        tos::test::Gate release;
+        std::atomic<int> calls{0};
+        std::promise<void> all_entered, closing_started;
+        auto entered = all_entered.get_future();
+        auto started = closing_started.get_future();
+        auto held = std::make_shared<int>(42);
+        std::weak_ptr<int> lifetime = held;
+        auto result = events.Subscribe<NumberEvent>([&, held](const NumberEvent&) {
+            EXPECT_EQ(*held, 42);
+            if (calls.fetch_add(1) == 3) all_entered.set_value();
+            release.Wait();
+        });
+        ASSERT_TRUE(result);
+        auto subscription = std::move(result).value();
+        held.reset();
+        std::promise<tos::Status> closing_result;
+        auto finished = closing_result.get_future();
+        std::vector<std::thread> threads;
+        tos::test::ScopeExit cleanup([&] {
+            release.Open();
+            for (auto& thread : threads)
+                if (thread.joinable()) thread.join();
+        });
+        for (int index = 0; index < 4; ++index)
+            threads.emplace_back([&] { EXPECT_TRUE(events.PublishSync(NumberEvent{1})); });
+        ASSERT_EQ(entered.wait_for(5s), std::future_status::ready);
+        threads.emplace_back([&] {
+            closing_started.set_value();
+            closing_result.set_value(shutdown ? events.Shutdown() : subscription.Reset());
+        });
+        ASSERT_EQ(started.wait_for(5s), std::future_status::ready);
+        EXPECT_EQ(finished.wait_for(50ms), std::future_status::timeout);
+        EXPECT_FALSE(lifetime.expired());
+        release.Open();
+        for (auto& thread : threads) thread.join();
+        ASSERT_EQ(finished.wait_for(5s), std::future_status::ready);
+        EXPECT_TRUE(finished.get());
+        EXPECT_EQ(events.PublishSync(NumberEvent{2}).code(),
+                  shutdown ? tos::StatusCode::kFailedPrecondition : tos::StatusCode::kNotFound);
+        EXPECT_EQ(calls.load(), 4);
+        EXPECT_TRUE(subscription.Reset());
+        EXPECT_TRUE(lifetime.expired());
+    }
+}
+
+TEST(EventBusTest, ConcurrentExceptionsReleasePublicationAndCallbackCounts) {
+    tos::EventBus events;
+    tos::test::Gate release;
+    std::atomic<int> entered{0}, exceptions{0};
+    std::promise<void> all_entered;
+    auto ready = all_entered.get_future();
+    auto result = events.Subscribe<NumberEvent>([&](const NumberEvent&) {
+        if (entered.fetch_add(1) == 3) all_entered.set_value();
+        release.Wait();
+        throw std::runtime_error("expected concurrent callback failure");
+    });
+    ASSERT_TRUE(result);
+    auto subscription = std::move(result).value();
+    std::vector<std::thread> threads;
+    tos::test::ScopeExit cleanup([&] {
+        release.Open();
+        for (auto& thread : threads)
+            if (thread.joinable()) thread.join();
+    });
+    for (int index = 0; index < 4; ++index)
+        threads.emplace_back([&] {
+            try {
+                static_cast<void>(events.PublishSync(NumberEvent{1}));
+            } catch (const std::runtime_error&) {
+                ++exceptions;
+            }
+        });
+    ASSERT_EQ(ready.wait_for(5s), std::future_status::ready);
+    release.Open();
+    for (auto& thread : threads) thread.join();
+    EXPECT_EQ(exceptions.load(), 4);
+    EXPECT_TRUE(subscription.Reset());
+    EXPECT_TRUE(events.Shutdown());
 }
 
 }  // namespace

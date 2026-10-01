@@ -1,16 +1,15 @@
-#include "atomic_file_writer.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <string>
-#include <system_error>
 #include <utility>
+
+#include "tos/base/filesystem.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,169 +18,189 @@
 #include <unistd.h>
 #endif
 
-namespace tos::detail {
+namespace tos {
 namespace {
-
-Status FileError(std::string_view action, const Path& path, std::string_view detail) {
-    return Status(StatusCode::kUnavailable,
-                  std::string(action) + " '" + path.utf8() + "': " + std::string(detail));
+#ifdef _WIN32
+Status NativeError(DWORD error, const Path& path, std::string_view action) {
+    return WindowsError(error, std::string(action) + " '" + path.utf8() + "'");
 }
-
-std::filesystem::path NativePath(const Path& path) { return std::filesystem::u8path(path.utf8()); }
-
+#else
+Status NativeError(int error, const Path& path, std::string_view action) {
+    if (error == ENOTSUP || error == EOPNOTSUPP) {
+        return Status(StatusCode::kUnimplemented, std::string(action) + " is unsupported");
+    }
+    return ErrnoError(error, std::string(action) + " '" + path.utf8() + "'");
+}
+#endif
 }  // namespace
 
 struct AtomicFileWriter::Impl final {
-    explicit Impl(Path target) : target(std::move(target)) {}
+    Impl(Path destination, AtomicWriteDurability mode)
+        : target(std::move(destination)), durability(mode) {}
+    ~Impl() {
+#ifdef _WIN32
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        if (!replaced && !temporary.empty()) DeleteFileW(temporary.c_str());
+#else
+        if (descriptor >= 0) close(descriptor);
+        if (!replaced && !temporary.empty()) unlink(temporary.c_str());
+#endif
+    }
 
     Path target;
-    std::filesystem::path target_native;
-    std::filesystem::path temporary_native;
+    std::filesystem::path destination;
+    std::filesystem::path temporary;
+    AtomicWriteDurability durability;
+    bool replaced{false};
+    bool failed{false};
 #ifdef _WIN32
-    HANDLE handle = INVALID_HANDLE_VALUE;
+    HANDLE handle{INVALID_HANDLE_VALUE};
 #else
-    int descriptor = -1;
+    int descriptor{-1};
 #endif
-    bool committed = false;
 };
 
-Result<AtomicFileWriter> AtomicFileWriter::Create(const Path& target) {
-    if (target.empty()) {
-        return Status(StatusCode::kInvalidArgument, "destination path must not be empty");
-    }
-    auto impl = std::make_unique<Impl>(target);
-    impl->target_native = NativePath(target);
-    const auto parent = impl->target_native.parent_path().empty()
-                            ? std::filesystem::path(".")
-                            : impl->target_native.parent_path();
-#ifdef _WIN32
-    static std::atomic<std::uint64_t> next_id{0};
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        impl->temporary_native =
-            parent /
-            (impl->target_native.filename().wstring() + L".tos-http-tmp-" +
-             std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(next_id.fetch_add(1)));
-        impl->handle = CreateFileW(impl->temporary_native.c_str(), GENERIC_WRITE, 0, nullptr,
-                                   CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (impl->handle != INVALID_HANDLE_VALUE) {
-            break;
-        }
-        if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return FileError("could not create temporary file", target,
-                             std::system_category().message(static_cast<int>(GetLastError())));
-        }
-    }
-    if (impl->handle == INVALID_HANDLE_VALUE) {
-        return FileError("could not create temporary file", target, "name collision limit reached");
-    }
-#else
-    std::string temporary =
-        (parent / (impl->target_native.filename().string() + ".tos-http-tmp-XXXXXX")).string();
-    impl->descriptor = mkstemp(temporary.data());
-    if (impl->descriptor == -1) {
-        return FileError("could not create temporary file", target, std::strerror(errno));
-    }
-    impl->temporary_native = std::filesystem::path(std::move(temporary));
-#endif
-    return AtomicFileWriter(std::move(impl));
-}
-
+AtomicFileWriter::AtomicFileWriter() = default;
 AtomicFileWriter::AtomicFileWriter(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
+AtomicFileWriter::AtomicFileWriter(AtomicFileWriter&&) noexcept = default;
+AtomicFileWriter& AtomicFileWriter::operator=(AtomicFileWriter&&) noexcept = default;
+AtomicFileWriter::~AtomicFileWriter() = default;
 
-AtomicFileWriter::AtomicFileWriter(AtomicFileWriter&& other) noexcept = default;
-
-AtomicFileWriter& AtomicFileWriter::operator=(AtomicFileWriter&& other) noexcept = default;
-
-AtomicFileWriter::~AtomicFileWriter() {
-    if (!impl_) {
-        return;
+Result<AtomicFileWriter> AtomicFileWriter::Create(const Path& target,
+                                                  AtomicWriteDurability durability) {
+    if (target.empty()) return Status(StatusCode::kInvalidArgument, "destination path is empty");
+    if (durability != AtomicWriteDurability::kNone && durability != AtomicWriteDurability::kData &&
+        durability != AtomicWriteDurability::kDataAndDirectory) {
+        return Status(StatusCode::kInvalidArgument, "invalid atomic-write durability");
     }
 #ifdef _WIN32
-    if (impl_->handle != INVALID_HANDLE_VALUE) {
-        CloseHandle(impl_->handle);
-        impl_->handle = INVALID_HANDLE_VALUE;
+    if (durability == AtomicWriteDurability::kDataAndDirectory) {
+        return Status(StatusCode::kUnimplemented, "Windows cannot flush a parent directory");
     }
-    if (!impl_->committed) {
-        DeleteFileW(impl_->temporary_native.c_str());
+#endif
+    auto impl = std::make_unique<Impl>(target, durability);
+    impl->destination = std::filesystem::u8path(target.utf8());
+    const auto parent = impl->destination.parent_path().empty() ? std::filesystem::path(".")
+                                                                : impl->destination.parent_path();
+#ifdef _WIN32
+    static std::atomic<std::uint64_t> sequence{0};
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        impl->temporary = parent / (impl->destination.filename().wstring() + L".tos-tmp-" +
+                                    std::to_wstring(GetCurrentProcessId()) + L"-" +
+                                    std::to_wstring(sequence.fetch_add(1)));
+        impl->handle = CreateFileW(impl->temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                   FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (impl->handle != INVALID_HANDLE_VALUE) return AtomicFileWriter(std::move(impl));
+        const DWORD error = GetLastError();
+        // Never remove a colliding file owned by another writer.
+        impl->temporary.clear();
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS)
+            return NativeError(error, target, "create temporary file");
     }
+    return Status(StatusCode::kUnavailable, "temporary file name collision limit reached");
 #else
-    if (impl_->descriptor != -1) {
-        close(impl_->descriptor);
-        impl_->descriptor = -1;
+    std::string name =
+        (parent / (impl->destination.filename().string() + ".tos-tmp-XXXXXX")).string();
+    impl->descriptor = mkstemp(name.data());
+    if (impl->descriptor < 0) return NativeError(errno, target, "create temporary file");
+    try {
+        impl->temporary = name;
+    } catch (...) {
+        unlink(name.c_str());
+        throw;
     }
-    if (!impl_->committed) {
-        unlink(impl_->temporary_native.c_str());
-    }
+    if (fcntl(impl->descriptor, F_SETFD, FD_CLOEXEC) != 0)
+        return NativeError(errno, target, "set temporary file close-on-exec");
+    return AtomicFileWriter(std::move(impl));
 #endif
 }
 
 Status AtomicFileWriter::Write(std::string_view bytes) {
-    if (!impl_ || impl_->committed) {
-        return Status(StatusCode::kFailedPrecondition, "temporary file is not writable");
-    }
+    if (!impl_ || impl_->replaced || impl_->failed)
+        return Status(StatusCode::kFailedPrecondition, "atomic writer is not writable");
+    std::size_t offset = 0;
+    while (offset < bytes.size()) {
 #ifdef _WIN32
-    std::size_t offset = 0;
-    while (offset < bytes.size()) {
-        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
-            bytes.size() - offset, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
+        const DWORD chunk = static_cast<DWORD>(
+            std::min<std::size_t>(bytes.size() - offset, std::numeric_limits<DWORD>::max()));
         DWORD written = 0;
-        if (!WriteFile(impl_->handle, bytes.data() + offset, chunk, &written, nullptr) ||
-            written != chunk) {
-            return FileError("could not write temporary file", impl_->target,
-                             std::system_category().message(static_cast<int>(GetLastError())));
+        if (!WriteFile(impl_->handle, bytes.data() + offset, chunk, &written, nullptr)) {
+            impl_->failed = true;
+            return NativeError(GetLastError(), impl_->target, "write temporary file");
         }
-        offset += written;
-    }
 #else
-    std::size_t offset = 0;
-    while (offset < bytes.size()) {
-        const ssize_t written =
-            write(impl_->descriptor, bytes.data() + offset, bytes.size() - offset);
+        const std::size_t chunk =
+            std::min<std::size_t>(bytes.size() - offset, std::numeric_limits<ssize_t>::max());
+        const ssize_t written = write(impl_->descriptor, bytes.data() + offset, chunk);
         if (written < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            return FileError("could not write temporary file", impl_->target, std::strerror(errno));
+            if (errno == EINTR) continue;
+            impl_->failed = true;
+            return NativeError(errno, impl_->target, "write temporary file");
         }
+#endif
         if (written == 0) {
-            return FileError("could not write temporary file", impl_->target, "short write");
+            impl_->failed = true;
+            return Status(StatusCode::kUnavailable, "zero-length temporary file write");
         }
         offset += static_cast<std::size_t>(written);
     }
-#endif
     return Status::Ok();
 }
 
 Status AtomicFileWriter::Commit() {
-    if (!impl_ || impl_->committed) {
-        return Status(StatusCode::kFailedPrecondition, "temporary file is not pending");
-    }
+    if (!impl_ || impl_->replaced || impl_->failed)
+        return Status(StatusCode::kFailedPrecondition, "atomic writer is not pending");
+    // Every commit attempt is terminal, including a failed directory flush after replacement.
+    impl_->failed = true;
 #ifdef _WIN32
-    if (!FlushFileBuffers(impl_->handle) || !CloseHandle(impl_->handle)) {
-        const auto error = GetLastError();
-        impl_->handle = INVALID_HANDLE_VALUE;
-        return FileError("could not finalize temporary file", impl_->target,
-                         std::system_category().message(static_cast<int>(error)));
-    }
-    impl_->handle = INVALID_HANDLE_VALUE;
-    if (!MoveFileExW(impl_->temporary_native.c_str(), impl_->target_native.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        return FileError("could not atomically replace file", impl_->target,
-                         std::system_category().message(static_cast<int>(GetLastError())));
-    }
+    if (impl_->durability != AtomicWriteDurability::kNone && !FlushFileBuffers(impl_->handle))
+        return NativeError(GetLastError(), impl_->target, "flush temporary file");
+    const HANDLE handle = std::exchange(impl_->handle, INVALID_HANDLE_VALUE);
+    if (!CloseHandle(handle))
+        return NativeError(GetLastError(), impl_->target, "close temporary file");
+    const DWORD flags =
+        MOVEFILE_REPLACE_EXISTING |
+        (impl_->durability == AtomicWriteDurability::kNone ? 0 : MOVEFILE_WRITE_THROUGH);
+    if (!MoveFileExW(impl_->temporary.c_str(), impl_->destination.c_str(), flags))
+        return NativeError(GetLastError(), impl_->target, "replace destination");
+    impl_->replaced = true;
 #else
-    if (close(impl_->descriptor) != 0) {
-        const int error = errno;
-        impl_->descriptor = -1;
-        return FileError("could not finalize temporary file", impl_->target, std::strerror(error));
+    if (impl_->durability != AtomicWriteDurability::kNone) {
+        int result;
+        do {
+            result = fsync(impl_->descriptor);
+        } while (result != 0 && errno == EINTR);
+        if (result != 0) return NativeError(errno, impl_->target, "flush temporary file");
     }
-    impl_->descriptor = -1;
-    if (rename(impl_->temporary_native.c_str(), impl_->target_native.c_str()) != 0) {
-        return FileError("could not atomically replace file", impl_->target, std::strerror(errno));
-    }
+    const int descriptor = std::exchange(impl_->descriptor, -1);
+    if (close(descriptor) != 0) return NativeError(errno, impl_->target, "close temporary file");
+    if (rename(impl_->temporary.c_str(), impl_->destination.c_str()) != 0)
+        return NativeError(errno, impl_->target, "replace destination");
+    impl_->replaced = true;
+    if (impl_->durability == AtomicWriteDurability::kDataAndDirectory)
+        return SyncDirectory(impl_->target.parent_path().empty() ? Path::Parse(".").value()
+                                                                 : impl_->target.parent_path());
 #endif
-    impl_->committed = true;
     return Status::Ok();
 }
 
-}  // namespace tos::detail
+Status SyncDirectory(const Path& path) {
+    if (path.empty()) return Status(StatusCode::kInvalidArgument, "directory path is empty");
+#ifdef _WIN32
+    return Status(StatusCode::kUnimplemented, "Windows cannot flush a directory");
+#else
+    const int descriptor = open(path.utf8().c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY);
+    if (descriptor < 0) return NativeError(errno, path, "open directory");
+    int result;
+    do {
+        result = fsync(descriptor);
+    } while (result != 0 && errno == EINTR);
+    const int error = errno;
+    const int closed = close(descriptor);
+    if (result != 0) return NativeError(error, path, "flush directory");
+    if (closed != 0) return NativeError(errno, path, "close directory");
+    return Status::Ok();
+#endif
+}
+
+}  // namespace tos

@@ -1,9 +1,8 @@
 #include <cstdint>
+#include <gtest/gtest.h>
 #include <string_view>
 #include <type_traits>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "tos/base/base64.h"
 

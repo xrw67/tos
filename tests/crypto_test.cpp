@@ -3,12 +3,11 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <gtest/gtest.h>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "test_util.h"
 

@@ -20,6 +20,7 @@ add_executable(tos_unit_tests
     dynamic_library_test.cpp
     logging_test.cpp
     network_test.cpp
+    platform_primitives_test.cpp
     scheduler_test.cpp
     thread_pool_test.cpp
 )
@@ -69,9 +70,25 @@ endforeach()
 add_custom_target(tos_public_headers ALL DEPENDS ${tos_public_header_targets})
 
 add_library(tos_dynamic_library_test_module SHARED dynamic_library_test_module.cpp)
+add_library(tos_dynamic_library_lifetime_module SHARED dynamic_library_lifetime_module.cpp)
+target_compile_features(tos_dynamic_library_lifetime_module PRIVATE cxx_std_17)
+tos_target_defaults(tos_dynamic_library_lifetime_module)
+add_executable(tos_dynamic_library_lifetime_helper dynamic_library_lifetime_helper.cpp)
+target_link_libraries(tos_dynamic_library_lifetime_helper PRIVATE tos::base)
+tos_target_defaults(tos_dynamic_library_lifetime_helper)
+target_compile_definitions(tos_unit_tests PRIVATE
+    TOS_DYNAMIC_LIBRARY_LIFETIME_HELPER="$<TARGET_FILE:tos_dynamic_library_lifetime_helper>"
+    TOS_DYNAMIC_LIBRARY_LIFETIME_MODULE="$<TARGET_FILE:tos_dynamic_library_lifetime_module>")
+add_dependencies(tos_unit_tests tos_dynamic_library_lifetime_helper tos_dynamic_library_lifetime_module)
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
 target_link_libraries(tos_process_test_helper PRIVATE tos::base)
+add_executable(tos_platform_primitives_helper platform_primitives_helper.cpp)
+target_link_libraries(tos_platform_primitives_helper PRIVATE tos::base)
+tos_target_defaults(tos_platform_primitives_helper)
+target_compile_definitions(tos_unit_tests PRIVATE
+    TOS_PLATFORM_PRIMITIVES_HELPER="$<TARGET_FILE:tos_platform_primitives_helper>")
+add_dependencies(tos_unit_tests tos_platform_primitives_helper)
 
 if(WIN32)
     target_link_libraries(tos_unit_tests PRIVATE Ws2_32)
@@ -107,7 +124,7 @@ if(TOS_ENABLE_APP)
         TOS_DYNAMIC_MODULE_NULL_TEST_MODULE="$<TARGET_FILE:tos_dynamic_module_null_test_module>")
     add_dependencies(tos_unit_tests tos_dynamic_module_test_module tos_dynamic_module_null_test_module)
     add_test(NAME tos.ApplicationConsumer COMMAND tos_app_consumer)
-    set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT 30)
+    set_tests_properties(tos.ApplicationConsumer PROPERTIES LABELS unit TIMEOUT ${TOS_TEST_TIMEOUT})
 endif()
 
 # A separate process is needed to observe static destruction after main returns.
@@ -116,7 +133,7 @@ target_link_libraries(tos_result_shutdown_test PRIVATE tos::base)
 foreach(scenario moved valueless)
     add_test(NAME tos.ResultShutdown.${scenario}
         COMMAND tos_result_shutdown_test ${scenario})
-    set_tests_properties(tos.ResultShutdown.${scenario} PROPERTIES LABELS unit TIMEOUT 30)
+    set_tests_properties(tos.ResultShutdown.${scenario} PROPERTIES LABELS unit TIMEOUT ${TOS_TEST_TIMEOUT})
 endforeach()
 
 include(GoogleTest)
@@ -124,13 +141,26 @@ gtest_discover_tests(
     tos_unit_tests
     TEST_PREFIX tos.
     DISCOVERY_MODE PRE_TEST
-    DISCOVERY_TIMEOUT 30
-    PROPERTIES LABELS unit TIMEOUT 30
+    DISCOVERY_TIMEOUT ${TOS_TEST_TIMEOUT}
+    PROPERTIES LABELS unit TIMEOUT ${TOS_TEST_TIMEOUT}
 )
 
 # Keep global allocation hooks out of the regular test executable.
 add_executable(tos_allocation_tests status_allocation_test.cpp)
 target_link_libraries(tos_allocation_tests PRIVATE tos::base GTest::gtest_main)
+if(TOS_SANITIZER STREQUAL "thread" AND CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    # LLVM's static TSan runtime defines strong new/delete symbols. The shared runtime permits
+    # this executable's intentional replacements while still intercepting their malloc/free.
+    execute_process(COMMAND "${CMAKE_CXX_COMPILER}" --print-runtime-dir
+        OUTPUT_VARIABLE tos_tsan_runtime_dir OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE tos_tsan_runtime_result)
+    if(NOT tos_tsan_runtime_result EQUAL 0 OR NOT IS_DIRECTORY "${tos_tsan_runtime_dir}")
+        message(FATAL_ERROR "Cannot locate Clang's shared TSan runtime")
+    endif()
+    target_link_options(tos_allocation_tests PRIVATE -shared-libsan)
+    set_property(TARGET tos_allocation_tests APPEND PROPERTY BUILD_RPATH "${tos_tsan_runtime_dir}")
+endif()
 # Global new/delete replacements intentionally use malloc/free in this isolated
 # allocation-regression executable. GCC's diagnostic cannot model that pairing.
 target_compile_options(
@@ -140,10 +170,17 @@ gtest_discover_tests(
     tos_allocation_tests
     TEST_PREFIX tos.
     DISCOVERY_MODE PRE_TEST
-    DISCOVERY_TIMEOUT 30
-    PROPERTIES LABELS unit TIMEOUT 30
+    DISCOVERY_TIMEOUT ${TOS_TEST_TIMEOUT}
+    PROPERTIES LABELS unit TIMEOUT ${TOS_TEST_TIMEOUT}
 )
 
 foreach(target tos_dynamic_library_test_module tos_process_test_helper tos_result_shutdown_test tos_allocation_tests)
     tos_target_defaults(${target})
 endforeach()
+
+# Deliberate faults are run only by verify_sanitizers.py, never by ordinary CTest.
+if(NOT TOS_SANITIZER STREQUAL "none")
+    add_executable(tos_sanitizer_probe sanitizer_probe.cpp)
+    target_link_libraries(tos_sanitizer_probe PRIVATE Threads::Threads)
+    tos_target_defaults(tos_sanitizer_probe)
+endif()

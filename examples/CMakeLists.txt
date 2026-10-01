@@ -26,25 +26,25 @@ if(BUILD_TESTING)
             "-DEXAMPLE_EXECUTABLE=$<TARGET_FILE:tos_minimal>"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/../tests/check_example.cmake"
     )
-    set_tests_properties(tos.example PROPERTIES LABELS example TIMEOUT 30)
+    set_tests_properties(tos.example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 
     add_test(NAME tos.logging_example COMMAND tos_logging_example)
-    set_tests_properties(tos.logging_example PROPERTIES LABELS example TIMEOUT 30)
+    set_tests_properties(tos.logging_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 
     add_test(NAME tos.process_example COMMAND tos_process_example)
-    set_tests_properties(tos.process_example PROPERTIES LABELS example TIMEOUT 30)
+    set_tests_properties(tos.process_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 
     if(TOS_ENABLE_APP)
         add_test(NAME tos.application_example COMMAND tos_application_example)
-        set_tests_properties(tos.application_example PROPERTIES LABELS example TIMEOUT 30)
+        set_tests_properties(tos.application_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 
         add_test(NAME tos.debug_example COMMAND tos_debug_example)
-        set_tests_properties(tos.debug_example PROPERTIES LABELS example TIMEOUT 30)
+        set_tests_properties(tos.debug_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 
     endif()
 
     add_test(NAME tos.scheduler_example COMMAND tos_scheduler_example)
-    set_tests_properties(tos.scheduler_example PROPERTIES LABELS example TIMEOUT 30)
+    set_tests_properties(tos.scheduler_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 endif()
 
 foreach(target tos_minimal tos_logging_example tos_process_example tos_scheduler_example tos_application_example tos_debug_example)

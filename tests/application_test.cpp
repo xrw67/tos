@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -9,8 +10,6 @@
 #include <thread>
 #include <type_traits>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "tos/app/app.h"
 #include "tos/app/context.h"
@@ -364,6 +363,41 @@ TEST(AppTest, ModulesRegisterAndRemoveDebugHandlersThroughContext) {
     EXPECT_EQ(app.debug().Execute("module-command", output).code(), tos::StatusCode::kNotFound);
     ASSERT_TRUE(app.debug().Execute("help", output));
     EXPECT_EQ(output.str().find("module-command:"), std::string::npos);
+}
+
+TEST(AppTest, ModulesDebugCommandReportsDependenciesAndLoadState) {
+    std::vector<std::string> events;
+    tos::App app(QuietOptions());
+    ASSERT_TRUE(app.AddModule(std::make_unique<TestModule>(ModuleSpec{"z", {"a"}, &events})));
+    ASSERT_TRUE(app.AddModule(std::make_unique<TestModule>(ModuleSpec{"a", {}, &events})));
+
+    std::ostringstream output;
+    ASSERT_TRUE(app.debug().Execute("modules", output));
+    EXPECT_EQ(output.str(),
+              "module=a loaded=false dependencies=[]\n"
+              "module=z loaded=false dependencies=[a]\n");
+
+    output.str("");
+    output.clear();
+    ASSERT_TRUE(app.Start());
+    ASSERT_TRUE(app.debug().Execute("modules", output));
+    EXPECT_EQ(output.str(),
+              "module=a loaded=true dependencies=[]\n"
+              "module=z loaded=true dependencies=[a]\n");
+
+    output.str("");
+    output.clear();
+    ASSERT_TRUE(app.Stop());
+    ASSERT_TRUE(app.debug().Execute("modules", output));
+    EXPECT_EQ(output.str(),
+              "module=a loaded=false dependencies=[]\n"
+              "module=z loaded=false dependencies=[a]\n");
+
+    output.str("");
+    output.clear();
+    ASSERT_TRUE(app.debug().Execute("modules extra", output));
+    EXPECT_EQ(output.str(),
+              "error=INVALID_ARGUMENT: invalid debug command: modules does not accept arguments\n");
 }
 
 TEST(AppTest, SharedExecutorIsAvailableBeforeStartAndDrainsAfterModuleUnload) {

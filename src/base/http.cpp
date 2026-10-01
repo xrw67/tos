@@ -15,7 +15,7 @@
 #include <string_view>
 #include <utility>
 
-#include "atomic_file_writer.h"
+#include "tos/base/filesystem.h"
 
 namespace tos {
 namespace {
@@ -30,7 +30,7 @@ struct CurlRuntime final {
 
 struct ResponseContext final {
     std::string body;
-    detail::AtomicFileWriter* writer = nullptr;
+    AtomicFileWriter* writer = nullptr;
     std::optional<Status> write_failure;
     std::exception_ptr callback_exception;
 };
@@ -393,7 +393,7 @@ Result<HttpResponse> HttpPost(std::string_view url, std::string_view body,
 
 Result<HttpResponse> DownloadFile(std::string_view url, const Path& destination,
                                   const HttpRequestOptions& options) {
-    auto writer_result = detail::AtomicFileWriter::Create(destination);
+    auto writer_result = AtomicFileWriter::Create(destination);
     if (!writer_result) {
         return std::move(writer_result).status();
     }

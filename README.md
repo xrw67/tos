@@ -147,7 +147,7 @@ if (!app.Start()) return 1;
 app.Stop();
 ```
 
-`<tos/app/debug.h>` 提供嵌入式的文本命令 `DebugController`，供宿主把受控调试能力接入自己的终端、GUI 或安全传输层。它不会自行监听网络或 IPC、读取标准输入、执行任意代码、停止应用或暂停任务。每个 `DebugController` 都内置不可替换的 `help`，按命令名排序列出当时已注册的命令及单行描述。`App` 自己拥有一个控制器，可通过 `app.debug()` 取得；它在构造时注册 `version`、`config`、`status` 和 `log-level`。`Execute()`、注册和注销可并发调用；销毁独立控制器或 App 时仍须由调用方等待这些调用结束。调用方拥有传入 `Execute()` 的输出流，多个并发调用共享同一流时须自行同步。
+`<tos/app/debug.h>` 提供嵌入式的文本命令 `DebugController`，供宿主把受控调试能力接入自己的终端、GUI 或安全传输层。它不会自行监听网络或 IPC、读取标准输入、执行任意代码、停止应用或暂停任务。每个 `DebugController` 都内置不可替换的 `help`，按命令名排序列出当时已注册的命令及单行描述。`App` 自己拥有一个控制器，可通过 `app.debug()` 取得；它在构造时注册 `version`、`config`、`status`、`modules` 和 `log-level`。`modules` 列出所有已注册模块，按名称排序输出 `module=<name> loaded=<true|false> dependencies=[<name>,...]`；`loaded` 表示模块当前是否已完成 `OnLoad`，应用停止后为 `false`。`Execute()`、注册和注销可并发调用；销毁独立控制器或 App 时仍须由调用方等待这些调用结束。调用方拥有传入 `Execute()` 的输出流，多个并发调用共享同一流时须自行同步。
 
 `Execute(command_line, output)` 按 ASCII 空白分词，忽略前后与重复空白；引号和反斜杠是普通字节，不支持 shell 转义，空输入或嵌入 NUL 返回 `kInvalidArgument`。未知命令返回 `kNotFound`，已失败的 output 或处理器写入后失败返回 `kUnavailable`。`help` 不接受参数，不能注册或注销；`version` 输出 `AppOptions::name` 和 `AppOptions::version`（默认 `unknown`）；`config` 输出完整紧凑 JSON 配置。`config` 不会脱敏，宿主不得将其接入不受信任的终端或传输通道。`status` 不接受参数，向 output 写入带结尾换行的稳定 `key=value` 文本：`app_state`、`log_level` 与 `executor.*` 线程池统计。`log-level <trace|debug|info|warning|error|critical|off>` 调整最低日志等级并写入更新后的相同快照；其参数或日志器错误写为 `error=<Status::ToString()>\n`。
 
@@ -185,15 +185,50 @@ void 处理器。`RegisterHandler()` 现在还要求一条非空、单行描述�
 
 ### 自动化验证
 
-[GitHub Actions CI](https://github.com/xrw67/tos/actions/workflows/ci.yml) 在每次推送、PR 和手动触发时运行三个并行 Release 任务：
+[GitHub Actions CI](https://github.com/xrw67/tos/actions/workflows/ci.yml) 在每次推送、PR 和手动触发时运行三平台 Debug/Release 和独立 Linux sanitizer 门禁：
 
 | 系统镜像 | 编译器 | 检查内容 |
 | --- | --- | --- |
-| `ubuntu-24.04` | GCC | 编译、GoogleTest 用例、示例运行 |
-| `macos-14` | Apple Clang | 编译、GoogleTest 用例、示例运行 |
-| `windows-2022` | MSVC / Visual Studio 2022，x64 | 编译、GoogleTest 用例、示例运行 |
+| `ubuntu-24.04` | GCC | 五种 Release 组件构建/安装消费；完整组件 Debug 单测、示例、独立公共头 |
+| `macos-14` | Apple Clang | 同上 |
+| `windows-2022` | MSVC / Visual Studio 2022，x64 | 同上 |
+| `ubuntu-24.04` | Clang 18 | base/app 的 ASan+UBSan 和 TSan，完整单测/示例与生命周期测试重复 20 次 |
 
-每个 CI 任务最长运行 15 分钟，每项 CTest 检查最长运行 30 秒。失败任务不会取消其他平台的任务。后续增加业务组件时，应增加对应单元测试并接入 CTest 和 CI。
+三平台任务最长运行 40 分钟，sanitizer 任务 30 分钟；普通 CTest 超时 30 秒，sanitizer
+超时 120 秒。失败任务不会取消其他任务。配置、构建、CTest 和 sanitizer 失败日志会作为
+artifact 保存。任何 sanitizer 报告、运行时启动失败或测试超时都会使门禁失败。
+
+CMake 3.24 以上可复现同一配置（完整组件需要预装 OpenSSL 3 和 libcurl，通过
+`CMAKE_PREFIX_PATH` 环境变量指定依赖位置）：
+
+```sh
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+
+cmake --preset asan-ubsan
+cmake --build --preset asan-ubsan
+python3 tests/verify_sanitizers.py --preset asan-ubsan
+```
+
+`release` 和 `tsan` 提供对应配置；Windows 使用 `debug-windows`/`release-windows`。
+`TOS_SANITIZER=none` 默认不插桩，另外两个值为 `address-undefined` 和 `thread`，仅支持
+Linux/macOS 的 GCC/Clang，编译器无法链接对应运行时则配置失败。Sanitizer 配置不修改
+父项目全局编译参数；库、测试、辅助进程、动态库夹具和示例均插桩，源码消费端继承所需
+运行时链接选项。插桩构建仅供验证，必须设置 `TOS_INSTALL=OFF`，不能作为发布包安装。
+非法选项和不支持的平台明确报错。
+
+验证脚本先在独立进程运行故意越界、整数溢出或数据竞争探针，检查对应报告及失败退出码；
+探针不注册为正常 CTest。然后运行全部适用测试，并将 EventBus、线程池、动态库和 App
+生命周期测试重复 20 次，遇错即停。Linux ASan 开启泄漏检测，UBSan/TSan 遇错退出，
+不自动忽略报告或跳过测试。Linux CI 的 TSan 任务仅在临时 runner 上将
+`vm.mmap_rnd_bits` 设为 28，以兼容其影子内存布局；本地运行需提供兼容的地址空间布局。
+macOS 不支持当前预设要求的 LeakSanitizer，因此该完整 ASan 门禁以 Linux 为准；其他
+平台本地运行时不支持所选能力会明确失败。clang-tidy、coverage 和 fuzz 仍属后续工作。
+
+独立分配计数测试覆盖普通及 `nothrow` 分配重载。Linux Clang 下该测试使用共享 TSan
+运行时，使测试自定义的 `new/delete` 与运行时共存；其底层 `malloc/free` 仍由 TSan
+监测。其余测试使用编译器默认的 sanitizer 运行时，不关闭检查项。
 
 本地实测环境及结果见下方记录；Linux、Windows 以及 GitHub macOS runner 的结果以 CI 实际运行记录为准。镜像标签固定系统系列，预装工具链仍可能随镜像更新，并不代表最低支持版本。
 
@@ -210,6 +245,13 @@ void 处理器。`RegisterHandler()` 现在还要求一条非空、单行描述�
 - Debug 配置下启用 ASan/UBSan，53 项 CTest 检查全部通过；分配回归测试确认普通错误由所有者释放，长字符串右值构造仅分配错误表示。
 - 使用现有 clang-tidy 配置检查 Status / Result 公共头文件通过；改为普通指针布局后，之前的疑似泄漏告警未再出现。此记录仅涵盖公共头文件诊断。
 - 下方用法示例独立编译并输出 `localhost:8080`。编译检查确认不支持的类型参数被拒绝，忽略两个类型的返回值会触发 `[[nodiscard]]` 诊断。
+
+2026-10-01 验证记录：macOS arm64 的完整 Debug/Release 配置各通过 252 项测试，
+五种 Release 组件的源码消费和迁移安装检查全部通过。Ubuntu 24.04 ARM64 容器中的
+Clang 18 ASan/UBSan、TSan 各通过故障探针、237 项完整测试及 47 项生命周期测试各
+20 次重复运行；GCC 13 的 base/app Debug 配置也通过 237 项测试。容器测试以普通用户
+执行，权限用例没有跳过。插桩源码消费检查确认父项目编译参数及编译探针配置未被修改。
+这些结果不代表 GitHub x64 runner 或 Windows 原生 CI 已执行成功。
 
 ## 状态与结果
 
@@ -323,6 +365,18 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 
 `T` 必须是可析构、非数组、非 const/volatile 的对象类型，不支持引用类型、`Result<Status>` 或 `Result<void>`；无值操作直接使用 Status。两个类型均不提供对象级锁，涉及同一对象的修改或移动时需要调用方同步。构造错误信息和显式复制消息文本可能抛出内存分配异常。
 
+### 错误传播宏
+
+`<tos/base/status_macros.h>` 提供 C++17 错误传播辅助工具，调用方函数返回 `Status` 或 `Result<T>`：
+
+- `TOS_RETURN_IF_ERROR(expr)` 对返回 `Status` 的表达式求值一次；成功继续执行，失败移动返回错误。它是单条语句，可直接用于无花括号的 `if/else`。
+- `TOS_ASSIGN_OR_RETURN(lhs, expr)` 对返回 `Result<T>` 的表达式求值一次；失败移动返回错误且不求值 `lhs`，成功时向 `lhs` 移动提取值。支持已有赋值目标和 `auto value` 等声明，新变量在后续语句中可见。该宏展开为多条语句，**用于 `if/else` 或循环体时必须加花括号**。
+- 传入命名对象时显式使用 `std::move(object)`，不能传入 const 对象；宏接管操作数所有权，不复制 Status 或 Result。赋值宏保存的结果在当前作用域结束时销毁，借用其内部值的引用不能逃逸该作用域。
+- `lhs` 中带逗号的类型请先定义类型别名；右侧表达式支持模板参数及初始化列表中的逗号。内部变量使用 `tos_internal_` 前缀，调用方不要使用该前缀。GCC、Clang 和 MSVC 支持同一行重复调用；其他无 `__COUNTER__` 的编译器需把赋值宏调用放在不同行。
+- 表达式、值构造、移动提取及赋值抛出的异常直接传播；普通错误传播不新增内存分配，也不依赖 Logger 或 Runtime。异常保证、移动后状态及并发同步要求遵循原有 Status、Result 和值类型的合同。
+
+完整的声明、命名结果移动和失败传播示例见 [`examples/status_macros.cpp`](examples/status_macros.cpp)，随构建编译并由 CTest 运行。
+
 ### 兼容性变化
 
 - `message()` 从 `const std::string&` 改为 `std::string_view`；需要拥有文本的代码应显式构造 `std::string`，不能继续依赖原来的字符串引用契约。
@@ -418,6 +472,11 @@ int main() {
 `std::random_device` 初始化，但不承诺密码学安全，不能用于令牌、密钥、密码、验证码或
 任何其他安全敏感值。
 
+`<tos/base/secure_random.h>` 提供 `SecureRandomBytes()`，直接使用 Linux/macOS/Windows
+的系统随机源，返回可包含 NUL 的字节字符串；系统源失败返回 `kUnavailable`。UUID 由
+`<tos/base/uuid.h>` 中的 `GenerateUuidV4()` 生成，`IsUuid()` 用于兼容性校验。
+安全随机 API 不依赖 OpenSSL。
+
 ## 进程
 
 `<tos/base/process.h>` 提供不经过 shell 的 UTF-8 子进程启动。`ProcessOptions` 接受经过
@@ -499,7 +558,25 @@ Logger 不会检查或修改字段值。调用方负责避免记录密码、令�
 
 `<tos/base/strconv.h>` 提供 `Utf8ToWide()` 与 `WideToUtf8()`；它们不依赖进程 locale，在 UTF-8 与平台 `wchar_t` 文本之间转换。无效 UTF-8、孤立代理项和非法 Unicode 标量返回 `kInvalidArgument`，嵌入空字符保留。Windows 专属的 `AnsiToWide()` 与 `WideToAnsi()` 使用当前 ANSI 代码页（`CP_ACP`）；无法无损转换时返回 `kInvalidArgument`，其他平台返回 `kUnimplemented`。`<tos/base/filesystem.h>` 提供值语义的 `tos::Path` 和基础文件操作。路径必须经 `Path::Parse()` 构造：无效 UTF-8 和嵌入 NUL 返回 `kInvalidArgument`。Windows 会在调用原生文件 API 前严格转换为 UTF-16；POSIX 使用已验证的 UTF-8 字节。`filename()`、`parent_path()`、`stem()`、`extension()`、`lexically_normal()`、`is_absolute()` 和 `Join()` 是不访问文件系统的纯路径操作。
 
-`ReadTextFile`、`WriteTextFile`、`WriteTextFileAtomic`、`CreateDirectories`、`ListDirectory`、`GetFileMetadata`、`RemovePath` 和 `RenamePath` 使用 `Status` 或 `Result<T>` 报告 I/O 失败。文件内容按字节处理，不验证文本编码。目录列举按 UTF-8 字节排序；元数据不跟随符号链接。普通重命名拒绝覆盖目标，原子写入则在同目录写入临时文件后原子替换目标，保证读取方不会观察到半条内容，但不承诺断电持久性。
+`ReadTextFile`、`WriteTextFile`、`WriteTextFileAtomic`、`CreateDirectories`、`ListDirectory`、`GetFileMetadata`、`RemovePath` 和 `RenamePath` 使用 `Status` 或 `Result<T>` 报告 I/O 失败。文件内容按字节处理，不验证文本编码。目录列举按 UTF-8 字节排序；元数据不跟随符号链接。普通重命名拒绝覆盖目标，原子写入则在同目录写入临时文件后原子替换目标，保证读取方不会观察到半条内容。`AtomicWriteDurability::kNone` 不承诺断电持久性，`kData` 同步临时文件，`kDataAndDirectory` 还同步父目录；平台不支持所选保证时返回错误。
+
+`FileLock::TryAcquire()` 返回 move-only 文件锁句柄，使用非阻塞跨进程独占锁；锁竞争返回
+`kUnavailable`，句柄销毁释放锁但保留锁文件。`TerminationController` 将 POSIX
+SIGINT/SIGTERM 和 Windows 控制台事件转换为可等待的 `Wait()` 结果，也支持显式
+`RequestStop()`；同一进程只能安装一个控制器。
+
+文件锁位于 `<tos/base/file_lock.h>`，终止控制器位于 `<tos/base/termination.h>`。
+`AtomicFileWriter::Create(path, durability)` 支持分块 `Write()` 和一次性 `Commit()`；
+移动赋值和析构清理未提交文件，任意提交失败后不能重试该写入器。替换后的目录同步失败
+可能返回错误而新内容已经可见。同步保证以操作系统、文件系统和存储设备遵守刷新请求为限，
+不持久化任意新建的祖先目录；POSIX `SyncDirectory()` 可用于持久化新目录的父目录。
+Windows 对 `kDataAndDirectory` 在创建写入器之前返回 `kUnimplemented`；调用方可显式选用
+`kData`（文件刷新及 WRITE_THROUGH 替换），POSIX 支持 `kDataAndDirectory`。
+
+终止控制器会锁存第一个原因，多个等待者和后续 `Wait()` 返回同一个结果；卸载/重新安装
+清除请求。等待超时返回 `kTimeout`，未安装返回 `kFailedPrecondition`，安装冲突返回
+`kAlreadyExists`。等待、请求和查询可并发；安装、卸载和析构必须与这些操作由调用方串行化。
+Windows 关闭/关机事件受系统退出期限约束，不保证优雅停止能完成。
 
 ```cpp
 #include "tos/base/filesystem.h"

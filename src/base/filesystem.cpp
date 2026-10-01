@@ -136,68 +136,6 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
     return success ? Status::Ok() : WindowsFileError(failure, "could not write file", display_path);
 }
 
-Status WriteAtomicWindows(const std::filesystem::path& target, const Path& display_path,
-                          std::string_view text) {
-    const std::filesystem::path parent =
-        target.parent_path().empty() ? std::filesystem::path(L".") : target.parent_path();
-    static std::atomic<std::uint64_t> next_id{0};
-    std::filesystem::path temporary;
-    HANDLE handle = INVALID_HANDLE_VALUE;
-    for (int attempt = 0; attempt < 100; ++attempt) {
-        temporary = parent / (target.filename().wstring() + L".tos-tmp-" +
-                              std::to_wstring(GetCurrentProcessId()) + L"-" +
-                              std::to_wstring(next_id.fetch_add(1)));
-        handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                             FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (handle != INVALID_HANDLE_VALUE) {
-            break;
-        }
-        if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return WindowsFileError(GetLastError(), "could not create temporary file",
-                                    display_path);
-        }
-    }
-    if (handle == INVALID_HANDLE_VALUE) {
-        return Status(StatusCode::kUnavailable,
-                      "could not create a unique temporary file '" + display_path.utf8() + "'");
-    }
-
-    bool success = true;
-    DWORD failure = ERROR_SUCCESS;
-    std::size_t offset = 0;
-    while (offset < text.size()) {
-        const std::size_t remaining = text.size() - offset;
-        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
-            remaining, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
-        DWORD written = 0;
-        if (!WriteFile(handle, text.data() + offset, chunk, &written, nullptr) ||
-            written != chunk) {
-            success = false;
-            failure = GetLastError();
-            break;
-        }
-        offset += written;
-    }
-    if (success && !FlushFileBuffers(handle)) {
-        success = false;
-        failure = GetLastError();
-    }
-    if (!CloseHandle(handle) && success) {
-        success = false;
-        failure = GetLastError();
-    }
-    if (!success) {
-        DeleteFileW(temporary.c_str());
-        return WindowsFileError(failure, "could not write temporary file", display_path);
-    }
-    if (!MoveFileExW(temporary.c_str(), target.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        const DWORD error = GetLastError();
-        DeleteFileW(temporary.c_str());
-        return WindowsFileError(error, "could not atomically replace file", display_path);
-    }
-    return Status::Ok();
-}
 #else
 Status WriteDirectPosix(const std::filesystem::path& target, const Path& display_path,
                         std::string_view text) {
@@ -233,51 +171,6 @@ Status WriteDirectPosix(const std::filesystem::path& target, const Path& display
     return success ? Status::Ok() : ErrnoFileError(failure, "could not write file", display_path);
 }
 
-Status WriteAtomicPosix(const std::filesystem::path& target, const Path& display_path,
-                        std::string_view text) {
-    const std::filesystem::path parent =
-        target.parent_path().empty() ? std::filesystem::path(".") : target.parent_path();
-    std::string temporary = (parent / (target.filename().string() + ".tos-tmp-XXXXXX")).string();
-    const int descriptor = mkstemp(temporary.data());
-    if (descriptor == -1) {
-        return ErrnoFileError(errno, "could not create temporary file", display_path);
-    }
-
-    bool success = true;
-    int failure = 0;
-    std::size_t offset = 0;
-    while (offset < text.size()) {
-        const ssize_t written = write(descriptor, text.data() + offset, text.size() - offset);
-        if (written < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            success = false;
-            failure = errno;
-            break;
-        }
-        if (written == 0) {
-            success = false;
-            failure = EIO;
-            break;
-        }
-        offset += static_cast<std::size_t>(written);
-    }
-    if (close(descriptor) != 0 && success) {
-        success = false;
-        failure = errno;
-    }
-    if (!success) {
-        unlink(temporary.c_str());
-        return ErrnoFileError(failure, "could not write temporary file", display_path);
-    }
-    if (rename(temporary.c_str(), target.c_str()) != 0) {
-        const int error = errno;
-        unlink(temporary.c_str());
-        return ErrnoFileError(error, "could not atomically replace file", display_path);
-    }
-    return Status::Ok();
-}
 #endif
 
 }  // namespace
@@ -387,15 +280,20 @@ Status WriteTextFile(const Path& path, std::string_view text) {
 }
 
 Status WriteTextFileAtomic(const Path& path, std::string_view text) {
-    auto native_result = CheckedNativePath(path);
-    if (!native_result) {
-        return std::move(native_result).status();
+    return WriteTextFileAtomic(path, text, AtomicWriteDurability::kNone);
+}
+
+Status WriteTextFileAtomic(const Path& path, std::string_view text,
+                           AtomicWriteDurability durability) {
+    auto writer = AtomicFileWriter::Create(path, durability);
+    if (!writer) {
+        return std::move(writer).status();
     }
-#ifdef _WIN32
-    return WriteAtomicWindows(native_result.value(), path, text);
-#else
-    return WriteAtomicPosix(native_result.value(), path, text);
-#endif
+    Status written = writer.value().Write(text);
+    if (!written) {
+        return written;
+    }
+    return writer.value().Commit();
 }
 
 Status CreateDirectories(const Path& path) {

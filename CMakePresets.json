@@ -1,0 +1,56 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {"major": 3, "minor": 24, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "full", "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON", "TOS_BUILD_EXAMPLES": "ON",
+        "TOS_ENABLE_APP": "ON", "TOS_ENABLE_CRYPTO": "ON", "TOS_ENABLE_HTTP": "ON",
+        "TOS_INSTALL": "ON", "TOS_SANITIZER": "none"
+      }
+    },
+    {"name": "debug", "inherits": "full", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"}},
+    {"name": "release", "inherits": "full", "generator": "Ninja", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"}},
+    {"name": "debug-windows", "inherits": "debug", "generator": "Visual Studio 17 2022", "architecture": "x64"},
+    {"name": "release-windows", "inherits": "release", "generator": "Visual Studio 17 2022", "architecture": "x64"},
+    {
+      "name": "sanitizer", "hidden": true, "inherits": "debug",
+      "cacheVariables": {"TOS_ENABLE_CRYPTO": "OFF", "TOS_ENABLE_HTTP": "OFF", "TOS_INSTALL": "OFF"},
+      "condition": {"type": "notEquals", "lhs": "${hostSystemName}", "rhs": "Windows"}
+    },
+    {"name": "asan-ubsan", "inherits": "sanitizer", "cacheVariables": {"TOS_SANITIZER": "address-undefined"}},
+    {"name": "tsan", "inherits": "sanitizer", "cacheVariables": {"TOS_SANITIZER": "thread"}}
+  ],
+  "buildPresets": [
+    {"name": "debug", "configurePreset": "debug", "configuration": "Debug", "jobs": 2},
+    {"name": "release", "configurePreset": "release", "configuration": "Release", "jobs": 2},
+    {"name": "debug-windows", "configurePreset": "debug-windows", "configuration": "Debug", "jobs": 2},
+    {"name": "release-windows", "configurePreset": "release-windows", "configuration": "Release", "jobs": 2},
+    {"name": "asan-ubsan", "configurePreset": "asan-ubsan", "configuration": "Debug", "jobs": 2},
+    {"name": "tsan", "configurePreset": "tsan", "configuration": "Debug", "jobs": 2}
+  ],
+  "testPresets": [
+    {
+      "name": "tests", "hidden": true,
+      "output": {"outputOnFailure": true},
+      "filter": {"include": {"label": "unit|example"}},
+      "execution": {"noTestsAction": "error", "jobs": 1, "timeout": 30}
+    },
+    {"name": "debug", "inherits": "tests", "configurePreset": "debug", "configuration": "Debug"},
+    {"name": "release", "inherits": "tests", "configurePreset": "release", "configuration": "Release"},
+    {"name": "debug-windows", "inherits": "tests", "configurePreset": "debug-windows", "configuration": "Debug"},
+    {"name": "release-windows", "inherits": "tests", "configurePreset": "release-windows", "configuration": "Release"},
+    {
+      "name": "asan-ubsan", "inherits": "tests", "configurePreset": "asan-ubsan", "configuration": "Debug",
+      "execution": {"timeout": 120},
+      "environment": {"ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1", "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1"}
+    },
+    {
+      "name": "tsan", "inherits": "tests", "configurePreset": "tsan", "configuration": "Debug",
+      "execution": {"timeout": 120},
+      "environment": {"TSAN_OPTIONS": "halt_on_error=1:exitcode=66"}
+    }
+  ]
+}

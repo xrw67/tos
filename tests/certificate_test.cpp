@@ -74,8 +74,9 @@ std::string SelfSignedCertificate(int not_after_seconds) {
 
 std::string ClientCertificateForKey(std::string_view private_key_pem, int not_after_seconds,
                                     const char* extended_key_usage) {
-    BioPtr key_input(BIO_new_mem_buf(private_key_pem.data(), static_cast<int>(private_key_pem.size())),
-                     BIO_free);
+    BioPtr key_input(
+        BIO_new_mem_buf(private_key_pem.data(), static_cast<int>(private_key_pem.size())),
+        BIO_free);
     PkeyPtr key(PEM_read_bio_PrivateKey(key_input.get(), nullptr, nullptr, nullptr), EVP_PKEY_free);
     CertificatePtr certificate(X509_new(), X509_free);
     BioPtr output(BIO_new(BIO_s_mem()), BIO_free);
@@ -95,7 +96,7 @@ std::string ClientCertificateForKey(std::string_view private_key_pem, int not_af
         return {};
     }
     X509_EXTENSION* usage = X509V3_EXT_conf_nid(nullptr, nullptr, NID_ext_key_usage,
-                                                 const_cast<char*>(extended_key_usage));
+                                                const_cast<char*>(extended_key_usage));
     if (usage == nullptr || X509_add_ext(certificate.get(), usage, -1) != 1) {
         X509_EXTENSION_free(usage);
         return {};
@@ -142,7 +143,7 @@ TEST(CertificateTest, CreatesCsrAndPersistsReusablePrivateKey) {
     EXPECT_EQ(second_key.value(), first_key.value());
 
 #if !defined(_WIN32)
-    struct stat metadata{};
+    struct stat metadata {};
     ASSERT_EQ(::stat(key_path.utf8().c_str(), &metadata), 0);
     EXPECT_EQ(metadata.st_mode & 0777, 0600);
 #endif

@@ -8,6 +8,8 @@ option(TOS_ENABLE_HTTP "Build HTTP support (libcurl)" OFF)
 option(TOS_ENABLE_APP "Build the Application framework" ON)
 option(TOS_INSTALL "Generate tos installation rules" ${PROJECT_IS_TOP_LEVEL})
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/Sanitizers.cmake")
+
 include(GNUInstallDirs)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/TosCURL.cmake")
 find_package(Threads REQUIRED)
@@ -15,6 +17,7 @@ find_package(Threads REQUIRED)
 # Private diagnostics must not change a parent's flags or a consumer's build policy.
 function(tos_target_defaults target)
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
+    tos_instrument_target(${target})
     if(MSVC)
         target_compile_options(${target} PRIVATE /W3 /WX /MP)
         target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS _SCL_SECURE_NO_WARNINGS)
@@ -38,18 +41,22 @@ add_library(tosbase STATIC
     src/base/atomic_file_writer.cpp
     src/base/dynamic_library.cpp
     src/base/environment.cpp
+    src/base/file_lock.cpp
     src/base/filesystem.cpp
     src/base/logging.cpp
     src/base/network.cpp
     src/base/process.cpp
     src/base/registry.cpp
+    src/base/secure_random.cpp
     src/base/scheduler.cpp
     src/base/system.cpp
-    src/base/thread_pool.cpp)
+    src/base/termination.cpp
+    src/base/thread_pool.cpp
+    src/base/uuid.cpp)
 tos_component(tosbase base)
 target_link_libraries(tosbase PUBLIC Threads::Threads PRIVATE ${CMAKE_DL_LIBS})
 if(WIN32)
-    target_link_libraries(tosbase PRIVATE Advapi32 Kernel32 Ws2_32)
+    target_link_libraries(tosbase PRIVATE Advapi32 Bcrypt Kernel32 Ws2_32)
     target_compile_definitions(tosbase PUBLIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MSVC)
         target_compile_options(tosbase PUBLIC /utf-8)
@@ -97,6 +104,8 @@ endif()
 include(CTest)
 add_subdirectory(third_party)
 if(BUILD_TESTING)
+    tos_instrument_target(gtest)
+    tos_instrument_target(gtest_main)
     add_subdirectory(tests)
 endif()
 if(TOS_BUILD_EXAMPLES)

@@ -45,6 +45,8 @@
 - [x] `P0-04` 增加安装、组件独立导出与版本文件，支持 `find_package(tos CONFIG REQUIRED)`；保持 `add_subdirectory` 接入。base/app 不依赖 crypto/HTTP，后二者默认关闭且需显式链接。
   - 验收：`tests/verify_components.py` 验证五种组合、源码/安装消费、安装前缀迁移、组件及版本错误；三平台 CI 执行同一验证。
 - [ ] `P0-05` 建立质量门禁：Debug/Release、ASan/UBSan、TSan（支持的平台）、clang-format、clang-tidy、coverage、fuzz 的 CMake presets；为 CTest 统一标签和超时。
+  - 已接入三平台 Debug/Release、Linux ASan/UBSan/TSan、故障探针和生命周期重复验证；配置默认不插桩。原生 CI 结果以实际运行记录为准。
+  - 待完成：clang-tidy、coverage、fuzz 的预设与门禁；本项暂不标记完成。
   - 验收：本机与 CI 均执行相应矩阵，失败信息可定位到组件和测试。
 
 ### P1：完成 MVP 基础能力
@@ -61,6 +63,9 @@
   - 验收：多线程写入不会损坏单条记录，文件失败可观察，关闭时已接收记录被刷新。
 - [x] `P1-06` 实现基础平台文件工具：UTF-8 路径适配、文本读写、目录/元数据查询和原子写入。
   - 验收：不存在、权限和替换失败返回明确错误；临时文件与资源清理可验证。
+- [ ] `P1-07` 提炼安全随机字节、UUID、跨进程文件锁、可选持久性的原子写入器和终止信号适配。
+  - 实现及自动化测试已具备；待 Linux/macOS/Windows 原生 CI 运行证据后标记完成。
+  - 验收：覆盖随机源、跨进程锁、持久性模式、移动清理及原生终止通知。Windows 显式拒绝目录同步，支持文件刷新及 WRITE_THROUGH；POSIX 支持同步文件及父目录。
 
 ### P2：任务、生命周期与模块通信
 

@@ -72,6 +72,21 @@ Result<std::vector<std::size_t>> ModuleRegistry::ResolveLoadOrder() const {
     return order;
 }
 
+std::vector<ModuleRegistry::Description> ModuleRegistry::Describe() const {
+    std::vector<bool> loaded(modules_.size(), false);
+    for (const std::size_t index : loaded_) {
+        loaded[index] = true;
+    }
+
+    std::vector<Description> descriptions;
+    descriptions.reserve(modules_.size());
+    for (std::size_t index = 0; index < modules_.size(); ++index) {
+        descriptions.push_back(
+            Description{modules_[index].name, modules_[index].dependencies, loaded[index]});
+    }
+    return descriptions;
+}
+
 Module& ModuleRegistry::Get(std::size_t index) noexcept { return *modules_[index].module; }
 
 const std::string& ModuleRegistry::Name(std::size_t index) const noexcept {

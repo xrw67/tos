@@ -77,8 +77,8 @@ class [[nodiscard]] App {
     [[nodiscard]] const Config& config() const noexcept;
     [[nodiscard]] Logger& logger() noexcept;
 
-    /// Returns the App-owned dispatcher, including standard `status` and `log-level` commands.
-    /// The reference remains valid while this App lives.
+    /// Returns the App-owned dispatcher, including standard `status`, `log-level`, and `modules`
+    /// commands. The reference remains valid while this App lives.
     [[nodiscard]] DebugController& debug() noexcept;
 
     /// Returns the App-owned executor. The reference remains valid while this App lives and cannot

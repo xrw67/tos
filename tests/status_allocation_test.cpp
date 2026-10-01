@@ -1,11 +1,10 @@
 #include <cstddef>
 #include <cstdlib>
+#include <gtest/gtest.h>
 #include <limits>
 #include <new>
 #include <string>
 #include <utility>
-
-#include <gtest/gtest.h>
 
 #include "tos/base/result.h"
 #include "tos/base/status.h"
@@ -73,6 +72,24 @@ void* operator new[](std::size_t size) { return ::operator new(size); }
 void operator delete[](void* memory) noexcept { ::operator delete(memory); }
 
 void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
+// Runtime interceptors may otherwise implement nothrow new independently of our ordinary
+// replacements, then pair it with our free-backed delete. Keep every ordinary overload paired.
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+    try {
+        return ::operator new(size);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept {
+    return ::operator new(size, tag);
+}
+
+void operator delete(void* memory, const std::nothrow_t&) noexcept { ::operator delete(memory); }
+
+void operator delete[](void* memory, const std::nothrow_t&) noexcept { ::operator delete(memory); }
 
 namespace tos {
 namespace {

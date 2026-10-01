@@ -2,14 +2,48 @@
 #define TOS_TEST_UTIL_H_
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <system_error>
 #include <utility>
 
 namespace tos {
 namespace test {
+
+// Test-owned threads must be released and joined even after a fatal assertion.
+template <typename F>
+class ScopeExit {
+   public:
+    explicit ScopeExit(F cleanup) : cleanup_(std::move(cleanup)) {}
+    ScopeExit(const ScopeExit&) = delete;
+    ScopeExit& operator=(const ScopeExit&) = delete;
+    ~ScopeExit() { cleanup_(); }
+
+   private:
+    F cleanup_;
+};
+
+class Gate {
+   public:
+    void Open() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        open_ = true;
+        ready_.notify_all();
+    }
+    void Wait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        ready_.wait(lock, [&] { return open_; });
+    }
+
+   private:
+    std::mutex mutex_;
+    std::condition_variable ready_;
+    bool open_{false};
+};
 
 class TemporaryDirectory {
    public:

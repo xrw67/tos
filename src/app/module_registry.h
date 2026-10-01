@@ -15,8 +15,15 @@ namespace tos {
 // Internal implementation detail. App owns this registry and serializes all access to it.
 class ModuleRegistry {
    public:
+    struct Description {
+        std::string name;
+        std::vector<std::string> dependencies;
+        bool loaded;
+    };
+
     [[nodiscard]] Status Register(std::unique_ptr<Module> module);
     [[nodiscard]] Result<std::vector<std::size_t>> ResolveLoadOrder() const;
+    [[nodiscard]] std::vector<Description> Describe() const;
 
     [[nodiscard]] Module& Get(std::size_t index) noexcept;
     [[nodiscard]] const std::string& Name(std::size_t index) const noexcept;

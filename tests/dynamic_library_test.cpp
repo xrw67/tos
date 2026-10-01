@@ -1,10 +1,11 @@
 #include "tos/base/dynamic_library.h"
 
+#include <gtest/gtest.h>
 #include <string>
 #include <type_traits>
 #include <utility>
 
-#include <gtest/gtest.h>
+#include "tos/base/process.h"
 
 namespace tos {
 namespace {
@@ -109,6 +110,18 @@ TEST(DynamicLibraryTest, DetachRelinquishesTheHandle) {
     auto symbol = library.GetSymbol<void (*)()>("TosDynamicLibraryIncrement");
     ASSERT_FALSE(symbol);
     EXPECT_EQ(symbol.status().code(), StatusCode::kFailedPrecondition);
+}
+
+TEST(DynamicLibraryTest, FinalUnloadIsObservedInIsolatedProcesses) {
+    ProcessOptions process;
+    process.executable = Path::Parse(TOS_DYNAMIC_LIBRARY_LIFETIME_HELPER).value();
+    for (const auto* scenario : {"scope", "move", "owners", "concurrent"}) {
+        SCOPED_TRACE(scenario);
+        process.arguments = {scenario, TOS_DYNAMIC_LIBRARY_LIFETIME_MODULE};
+        auto result = RunCommand(process);
+        ASSERT_TRUE(result) << result.status().ToString();
+        EXPECT_EQ(result->exit.exit_code, 0) << result->stderr_output;
+    }
 }
 
 }  // namespace

@@ -1,5 +1,6 @@
 #include "tos/app/app.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -132,9 +133,25 @@ void WriteDebugError(std::ostream& output, const Status& status) {
     tos::println(output, "error={}", status.ToString());
 }
 
+void WriteDebugModules(const std::vector<ModuleRegistry::Description>& descriptions,
+                       std::ostream& output) {
+    for (const auto& description : descriptions) {
+        output << "module=" << description.name
+               << " loaded=" << (description.loaded ? "true" : "false") << " dependencies=[";
+        for (std::size_t index = 0; index < description.dependencies.size(); ++index) {
+            if (index != 0) {
+                output << ',';
+            }
+            output << description.dependencies[index];
+        }
+        output << "]\n";
+    }
+}
+
 Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& executor,
                                 const std::string& name, const std::string& version,
-                                const Config& config) {
+                                const Config& config, ModuleRegistry& module_registry,
+                                std::recursive_mutex& app_mutex) {
     Status status =
         debug.RegisterHandler("version", "Print the application name and version.",
                               [&name, &version](const span<std::string>&, std::ostream& output) {
@@ -158,6 +175,29 @@ Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& ex
                               [&app, &executor](const span<std::string>&, std::ostream& output) {
                                   WriteDebugStatus(app, executor, output);
                               });
+    if (!status) {
+        return status;
+    }
+
+    status = debug.RegisterHandler(
+        "modules", "List application modules and their dependencies.",
+        [&module_registry, &app_mutex](const span<std::string>& args, std::ostream& output) {
+            if (!args.empty()) {
+                WriteDebugError(
+                    output, debug_detail::InvalidDebugCommand("modules does not accept arguments"));
+                return;
+            }
+            std::vector<ModuleRegistry::Description> descriptions;
+            {
+                std::lock_guard<std::recursive_mutex> lock(app_mutex);
+                descriptions = module_registry.Describe();
+            }
+            std::sort(
+                descriptions.begin(), descriptions.end(),
+                [](const ModuleRegistry::Description& left,
+                   const ModuleRegistry::Description& right) { return left.name < right.name; });
+            WriteDebugModules(descriptions, output);
+        });
     if (!status) {
         return status;
     }
@@ -187,8 +227,9 @@ Status RegisterAppDebugHandlers(App& app, DebugController& debug, ThreadPool& ex
 }  // namespace
 
 App::App(AppOptions options) : impl_(std::make_unique<Impl>(std::move(options))) {
-    Status registered = RegisterAppDebugHandlers(*this, impl_->debug, impl_->executor, impl_->name,
-                                                 impl_->version, impl_->config);
+    Status registered =
+        RegisterAppDebugHandlers(*this, impl_->debug, impl_->executor, impl_->name, impl_->version,
+                                 impl_->config, impl_->module_registry, impl_->mutex);
     if (!registered) {
         throw std::logic_error(registered.ToString());
     }

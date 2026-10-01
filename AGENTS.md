@@ -5,7 +5,7 @@
 `tos` is a C++17 application-foundation library. Its shipped public APIs use
 the `tos::` namespace and `<tos/...>` headers; `tos::base`, `tos::crypto`, `tos::http`, and `tos::app` are
 the public CMake consumer targets. Optional components depend on `tos::base`. GoogleTest tests,
-examples, and Linux/macOS/Windows Release CI are in place. Treat items in
+examples, Linux/macOS/Windows Debug/Release CI, and Linux sanitizer gates are configured. Treat items in
 `TODO.md` as planned work, not existing behavior.
 
 Read `TODO.md` before adding a component. It defines the implementation order,
@@ -74,6 +74,16 @@ changed public header, source file, and test:
 clang-format -i include/tos/<changed-header>.h tests/<changed-test>.cpp
 ```
 
+`CMakePresets.json` provides `debug`, `release`, `debug-windows`, `release-windows`,
+`asan-ubsan`, and `tsan` configure/build/test presets. For concurrency or lifetime changes,
+also configure/build each sanitizer preset on a supported host and run
+`python3 tests/verify_sanitizers.py --preset <asan-ubsan|tsan>`. The script requires real fault
+detection, the full base/app suite and twenty lifetime repetitions. Do not suppress reports,
+skip runtime failures, or claim native CI success based only on configuration. ASan leak detection
+in this gate requires Linux. Instrumented builds require `TOS_INSTALL=OFF`; the default
+`TOS_SANITIZER=none` keeps consumer builds and installed Release packages uninstrumented.
+Tests use `unit`/`example` labels and 30-second timeouts (120 seconds with sanitizers).
+
 Do not commit build products, generated CMake files, or local IDE state.
 
 ## Test Conventions
@@ -115,7 +125,7 @@ Do not commit build products, generated CMake files, or local IDE state.
   and target link dependencies.
 - Keep `BUILD_TESTING` and `TOS_BUILD_EXAMPLES` optional. Tests bring in the
   vendored GoogleTest source only when enabled; examples must build without
-  tests.
+tests.
 - Respect the planned one-way dependency graph: Foundation, Task, Platform,
   Network, and IPC must not depend on Runtime or extension modules. Add target
   dependency checks when introducing component targets.

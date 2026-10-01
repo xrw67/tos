@@ -3,13 +3,12 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <gtest/gtest.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 namespace {
 

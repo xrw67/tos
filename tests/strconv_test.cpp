@@ -1,8 +1,7 @@
 #include "tos/base/strconv.h"
 
-#include <string>
-
 #include <gtest/gtest.h>
+#include <string>
 
 namespace tos {
 namespace {

@@ -82,6 +82,8 @@ def main():
         package_dir = configs[0].parent
         for exported in package_dir.glob("*.cmake"):
             text = exported.read_text()
+            if "-fsanitize" in text:
+                raise RuntimeError(f"Release package exported sanitizer flags: {exported}")
             if any(str(path).replace("\\", "/") in text.replace("\\", "/")
                    for path in (SOURCE, build, original)):
                 raise RuntimeError(f"Non-relocatable path in {exported}")

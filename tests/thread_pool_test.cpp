@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <exception>
 #include <future>
+#include <gtest/gtest.h>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -12,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include <gtest/gtest.h>
+#include "test_util.h"
 
 namespace {
 
@@ -233,6 +234,101 @@ TEST(ThreadPoolTest, SupportsConcurrentSubmission) {
     EXPECT_TRUE(pool.Shutdown());
     EXPECT_EQ(completed.load(), 80);
     EXPECT_EQ(pool.stats().completed, 80U);
+}
+
+TEST(ThreadPoolTest, ConcurrentSubmissionAndShutdownAccountForAllAcceptedTasks) {
+    std::atomic<std::uint64_t> accepted{0}, completed{0}, rejected{0};
+    tos::ThreadPool pool(2, 512);
+    tos::test::Gate start;
+    std::vector<std::thread> threads;
+    tos::test::ScopeExit cleanup([&] {
+        start.Open();
+        for (auto& thread : threads)
+            if (thread.joinable()) thread.join();
+    });
+    for (int index = 0; index < 16; ++index) {
+        ASSERT_TRUE(pool.Post(tos::Task([&] { ++completed; })));
+        ++accepted;
+    }
+    for (int index = 0; index < 4; ++index)
+        threads.emplace_back([&] {
+            start.Wait();
+            for (int task = 0; task < 64; ++task) {
+                auto status = pool.Post(tos::Task([&] { ++completed; }));
+                if (status) {
+                    ++accepted;
+                } else {
+                    EXPECT_EQ(status.code(), tos::StatusCode::kFailedPrecondition);
+                    ++rejected;
+                }
+            }
+        });
+    for (int index = 0; index < 3; ++index)
+        threads.emplace_back([&] {
+            start.Wait();
+            EXPECT_TRUE(pool.Shutdown());
+        });
+    start.Open();
+    for (auto& thread : threads) thread.join();
+    auto stats = pool.stats();
+    EXPECT_EQ(completed.load(), accepted.load());
+    EXPECT_EQ(stats.accepted, accepted.load());
+    EXPECT_EQ(stats.completed, completed.load());
+    EXPECT_EQ(stats.rejected, rejected.load());
+    EXPECT_EQ(accepted.load() + rejected.load(), 272U);
+    EXPECT_EQ(stats.queued, 0U);
+    EXPECT_EQ(stats.running, 0U);
+    EXPECT_EQ(pool.Post(tos::Task([] {})).code(), tos::StatusCode::kFailedPrecondition);
+    EXPECT_TRUE(pool.Shutdown());
+}
+
+TEST(ThreadPoolTest, WorkerInitiatedShutdownStillRequiresExternalCallersToJoinAndDrain) {
+    tos::ThreadPool pool(1, 4);
+    tos::test::Gate begin_shutdown, release_worker;
+    std::promise<void> entered, worker_closed, closers_started;
+    auto running = entered.get_future();
+    auto closed = worker_closed.get_future();
+    auto joining = closers_started.get_future();
+    std::promise<tos::Status> results[2];
+    std::future<tos::Status> finished[2];
+    std::atomic<int> completed{0};
+    std::atomic<int> joining_callers{0};
+    std::vector<std::thread> closers;
+    tos::test::ScopeExit cleanup([&] {
+        begin_shutdown.Open();
+        release_worker.Open();
+        for (auto& thread : closers)
+            if (thread.joinable()) thread.join();
+        static_cast<void>(pool.Shutdown());
+    });
+    auto active = pool.Submit([&] {
+        entered.set_value();
+        begin_shutdown.Wait();
+        EXPECT_TRUE(pool.Shutdown());
+        worker_closed.set_value();
+        release_worker.Wait();
+    });
+    ASSERT_TRUE(active);
+    ASSERT_EQ(running.wait_for(5s), std::future_status::ready);
+    ASSERT_TRUE(pool.Post(tos::Task([&] { ++completed; })));
+    ASSERT_TRUE(pool.Post(tos::Task([&] { ++completed; })));
+    begin_shutdown.Open();
+    ASSERT_EQ(closed.wait_for(5s), std::future_status::ready);
+    for (int index = 0; index < 2; ++index) {
+        finished[index] = results[index].get_future();
+        closers.emplace_back([&, index] {
+            if (joining_callers.fetch_add(1) == 1) closers_started.set_value();
+            results[index].set_value(pool.Shutdown());
+        });
+    }
+    ASSERT_EQ(joining.wait_for(5s), std::future_status::ready);
+    for (auto& result : finished) EXPECT_EQ(result.wait_for(50ms), std::future_status::timeout);
+    release_worker.Open();
+    for (auto& thread : closers) thread.join();
+    for (auto& result : finished) EXPECT_TRUE(result.get());
+    std::move(active).value().get();
+    EXPECT_EQ(completed.load(), 2);
+    EXPECT_EQ(pool.stats().completed, 3U);
 }
 
 }  // namespace
