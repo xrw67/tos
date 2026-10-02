@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 
 SOURCE = Path(__file__).resolve().parents[1]
-LIFETIME_TESTS = r"^tos\.(EventBusTest|ThreadPoolTest|DynamicLibraryTest|AppTest|ScopeExitTest|ScopeExitAllocationTest|ResourceAllocationTest|NativeResourceTest|ProcessTest)\."
+LIFETIME_TESTS = r"^tos\.(EventBusTest|ThreadPoolTest|DynamicLibraryTest|AppTest|ScopeExitTest|ScopeExitAllocationTest|ResourceAllocationTest|NativeResourceTest|ProcessTest|CertificateTest)\."
 
 
 def main():

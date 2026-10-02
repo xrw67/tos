@@ -31,7 +31,7 @@ ctest --test-dir build -C Release -L unit --output-on-failure --no-tests=error -
 ctest --test-dir build -C Release -L example --output-on-failure --no-tests=error --timeout 30
 ```
 
-以下为全量构建命令；禁用组件时，相应测试和示例不构建。`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、Network、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书续期、字节序和 IPv4/IPv6 转换、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
+以下为全量构建命令；禁用组件时，相应测试和示例不构建。`unit` 运行 Status、Result、span、String、Random、Base64、Crypto、Certificate、Network、HTTP、Time、Duration、Config、Environment、Filesystem、Process、Logger、ThreadPool、Scheduler 和 Application 的 GoogleTest 单元测试，覆盖错误状态、值访问、移动所有权、异常恢复、字节级字符串操作、随机字符串约束与并发生成、严格 Base64、摘要向量、RSA/Ed25519、CSR、证书解析与属性检查、字节序和 IPv4/IPv6 转换、HTTP 请求/响应、超时与取消、Unix 时间规范化、RFC3339、进程环境读取/修改与 PATH 分段、UTF-8 路径、原子文件写入、命令 argv/环境/超时与输出捕获、手动和单调时钟、日志字段、轮转与并发写入、有界队列、future、协作取消、定时任务、关闭、模块依赖拓扑、生命周期回滚、Context 服务和并发控制；`example` 检查最小、日志、进程、Scheduler 和 Application 示例均能运行。没有匹配的检查时 CTest 会报错，运行失败时展示详细信息。
 
 `CMAKE_BUILD_TYPE` 用于 Makefiles 等单配置生成器，`--config Release` 和 `-C Release` 用于 Visual Studio 等多配置生成器。两者同时保留以便跨平台使用。
 
@@ -260,6 +260,17 @@ Clang 18 ASan/UBSan、TSan 各通过故障探针、237 项完整测试及 47 项
 探针均按预期拒绝；全部非 vendor C++ 文件通过 clang-format 18 检查。Pallas Agent
 Debug 的 53 项测试通过。以上为本机及本地容器证据，未运行 GitHub 或 Windows 原生 CI；
 既有三平台 CI 会执行新增测试，`P0-05` 的 clang-tidy、coverage、fuzz 待办保持不变。
+
+2026-10-02 证书接口收窄验证：macOS arm64 完整 Debug/Release 各通过 274 项测试
+（267 项 unit、7 项 example），包含公共头独立编译；五种 Release 组件、源码消费和迁移
+安装消费全部通过，新 CSR/解析接口在 crypto 消费程序中使用，base/app 消费显式禁用
+OpenSSL/CURL。Release 缓存保持 `TOS_SANITIZER=none`，私有密钥访问头不安装。
+本地 Ubuntu 24.04 ARM64 容器、Clang 18、普通用户，在额外的 crypto-enabled 构建目录中
+通过 ASan/UBSan 和 TSan 故障探针、269 项完整测试及 77 项生命周期测试各 20 次重复；
+Certificate 的并发检查也并发创建 CSR。默认 sanitizer presets 的组件选择保持不变，CI
+增加独立 crypto 配置。全部非 vendor C++ 文件通过 clang-format 18 检查；Pallas Agent
+Debug 的 62 项回归通过。未推送或运行本轮 GitHub/Linux x64/macOS/Windows 原生 CI，
+上述结果仅为本机及本地容器证据；`P0-05` 仍未完成。
 
 ## 状态与结果
 
@@ -789,8 +800,9 @@ std::cout << digest << '\n';
 
 `HashAlgorithm`、`Hash()` 和 `HashHex()` 已移除。迁移时请按所需算法改用对应的
 `*Data()`、`*String()` 或 `*File()` 函数；后者会流式读取文件。MD5 和 SHA-1 仅为遗留协议
-兼容保留；新的安全设计必须选择 SHA-256、SHA-384 或 SHA-512。RSA 仅支持至少 2048 位
-密钥、RSA-PSS/SHA-256 签名和 RSA-OAEP-SHA-256 加密，禁用 PKCS#1 v1.5；Ed25519
+兼容保留；新的安全设计必须选择 SHA-256、SHA-384 或 SHA-512。RSA 通用数据接口支持至少
+2048 位密钥、RSA-PSS/SHA-256 签名和 RSA-OAEP-SHA-256 加密，不提供 PKCS#1 v1.5
+数据签名/加密选项；CSR 保持既有 SHA-256 X.509 签名格式。Ed25519
 仅支持标准纯签名。密钥对象为
 move-only 且拥有原生密钥，const 加密操作可并发调用；移动、销毁或修改同一对象需要
 调用方同步。
@@ -800,11 +812,25 @@ I/O 或口令处理。库不擦除调用方提供的 PEM，也不承诺擦除返
 签名或摘要缓冲区，调用方负责敏感数据的生命周期和存储策略。签名或 RSA-OAEP 密文
 校验失败返回 `kUnauthenticated`，且不会暴露 OpenSSL 原始错误信息。
 
-`<tos/base/certificate.h>` 提供通用的 PEM 证书工具。`CreateCertificateSigningRequest()` 会
-复用指定路径上的未加密私钥；文件不存在时生成 RSA 私钥并以 PKCS#8 PEM 原子保存，默认使用
-3072 位密钥，POSIX 下将文件权限限制为 owner-only `0600`，然后返回带 SHA-256 签名的 CSR。
-`CertificateNeedsRenewal()` 根据证书 `notAfter` 和调用方提供的续期窗口返回判断结果。文件、
-PEM、OpenSSL 和参数错误均通过 `Result`/`Status` 返回，不暴露 OpenSSL 原始错误。
+`<tos/base/certificate.h>` 属于 `tos::crypto`，只处理内存材料。
+`CreateCertificateSigningRequest(key, common_name)` 借用 `RsaPrivateKey`，返回 CN-only、
+SHA-256 签名的 PEM CSR；密钥生成、文件存储及权限由调用方组合。
+`ParseCertificatePem(pem)` 返回 move-only `Certificate`，只解析首张证书，忽略后续链材料。
+过期或尚未生效的证书仍可解析；无法表示的日期返回 `kOutOfRange`，格式错误返回
+`kInvalidArgument`。`GetInfo()` 返回拥有 `not_before`、`not_after` 和小写 SHA-256 DER
+指纹的元数据；元数据的生命周期独立于证书。
+
+`CheckValidityAt(at)` 检查 `not_before <= at < not_after`，时间由调用方提供；
+`CheckPurpose(kTlsClient/kTlsServer)` 使用 OpenSSL 的 TLS leaf 用途语义，缺失 EKU 时
+可能允许相应用途，并不要求显式 clientAuth；`CheckPrivateKey(key)` 检查 RSA 密钥匹配。
+检查失败返回 `kInvalidArgument`，移动后操作返回 `kFailedPrecondition`。const 检查可并发，
+修改 OpenSSL 缓存的操作在对象内部串行化；移动和销毁需要外部同步。标准库分配异常传播。
+这些操作均不验证签名链、信任锚或身份名称；单项检查成功不等于证书可信。
+
+0.x 迁移：路径版 CSR、`ClientCertificateInfo`、`ValidateClientCertificate` 和通用层
+`CertificateNeedsRenewal` 已删除。改为先生成/解析 `RsaPrivateKey`，再创建 CSR；解析证书后
+按应用要求分别调用有效期、用途及密钥匹配检查。使用 `CertificateInfo` 获取元数据。
+私钥文件格式、权限、信任来源、注册和续期窗口均由应用管理，通用层不读取系统时间。
 
 `<tos/base/http.h>` 提供同步的通用 HTTP Request/Response API，以及 `HttpGet()`、`HttpPost()`、
 `DownloadFile()` 和 `UploadFile()` 高级封装。所有接口同时支持 HTTP/HTTPS；请求选项可配置

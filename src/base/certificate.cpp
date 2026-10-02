@@ -1,35 +1,27 @@
 #include "tos/base/certificate.h"
 
 #include <climits>
-#include <ctime>
+#include <cstdint>
 #include <memory>
-#include <string>
-#include <utility>
-
-#if !defined(_WIN32)
-#include <sys/stat.h>
-#endif
-
+#include <mutex>
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
-#include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#include <string>
+#include <utility>
+
+#include "crypto_internal.h"
+#include "tos/base/strconv.h"
 
 namespace tos {
 namespace {
 
 using BioPtr = std::unique_ptr<BIO, decltype(&BIO_free)>;
-using PkeyPtr = std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)>;
-using PkeyCtxPtr = std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)>;
 using RequestPtr = std::unique_ptr<X509_REQ, decltype(&X509_REQ_free)>;
 using CertificatePtr = std::unique_ptr<X509, decltype(&X509_free)>;
-
-#if !defined(_WIN32)
-constexpr int kPrivateKeyFileMode = S_IRUSR | S_IWUSR;
-#endif
 
 Status InvalidArgument(std::string_view message) {
     ERR_clear_error();
@@ -41,13 +33,8 @@ Status InternalError(std::string_view message) {
     return {StatusCode::kInternal, message};
 }
 
-Status PermissionError(const Path& path) {
-    ERR_clear_error();
-    return {StatusCode::kPermissionDenied,
-            "could not restrict private key permissions '" + path.utf8() + "'"};
-}
-
 Result<BioPtr> InputBio(std::string_view pem) {
+    if (pem.empty()) return InvalidArgument("PEM input is empty");
     if (pem.size() > static_cast<std::size_t>(INT_MAX)) {
         return Status(StatusCode::kOutOfRange, "PEM input exceeds OpenSSL size limits");
     }
@@ -77,69 +64,29 @@ Result<std::string> BioString(BIO* bio) {
     return std::string(data, static_cast<std::size_t>(length));
 }
 
-Result<PkeyPtr> ReadPrivateKey(std::string_view pem) {
-    if (pem.find("-----BEGIN ENCRYPTED PRIVATE KEY-----") != std::string_view::npos ||
-        pem.find("Proc-Type: 4,ENCRYPTED") != std::string_view::npos) {
-        return Status(StatusCode::kUnimplemented, "encrypted PEM private keys are not supported");
-    }
-    auto input = InputBio(pem);
-    if (!input) {
-        return std::move(input).status();
-    }
-    ERR_clear_error();
-    EVP_PKEY* key = PEM_read_bio_PrivateKey(input.value().get(), nullptr, nullptr, nullptr);
-    if (key == nullptr) {
-        return InvalidArgument("PEM input is not a valid unencrypted private key");
-    }
-    return PkeyPtr(key, EVP_PKEY_free);
-}
-
-Result<PkeyPtr> GeneratePrivateKey(std::size_t bits) {
-    if (bits < 2048 || bits > static_cast<std::size_t>(INT_MAX)) {
-        return InvalidArgument("RSA key size must be between 2048 and INT_MAX bits");
-    }
-    ERR_clear_error();
-    PkeyCtxPtr context(EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr), EVP_PKEY_CTX_free);
-    if (!context || EVP_PKEY_keygen_init(context.get()) <= 0 ||
-        EVP_PKEY_CTX_set_rsa_keygen_bits(context.get(), static_cast<int>(bits)) <= 0) {
-        return InternalError("OpenSSL could not initialize RSA key generation");
-    }
-    EVP_PKEY* key = nullptr;
-    if (EVP_PKEY_generate(context.get(), &key) <= 0 || key == nullptr) {
-        return InternalError("OpenSSL RSA key generation failed");
-    }
-    return PkeyPtr(key, EVP_PKEY_free);
-}
-
-Result<std::string> ExportPrivateKey(EVP_PKEY* key) {
-    auto output = OutputBio();
-    if (!output) {
-        return std::move(output).status();
-    }
-    ERR_clear_error();
-    if (PEM_write_bio_PrivateKey(output.value().get(), key, nullptr, nullptr, 0, nullptr,
-                                 nullptr) != 1) {
-        return InternalError("OpenSSL could not export a private key as PEM");
-    }
-    return BioString(output.value().get());
-}
-
 Result<std::string> CreateRequestPem(EVP_PKEY* key, std::string_view common_name) {
     if (common_name.size() > static_cast<std::size_t>(INT_MAX)) {
         return Status(StatusCode::kOutOfRange, "certificate common name is too long");
     }
+    if (common_name.empty() || common_name.find('\0') != std::string_view::npos ||
+        !strconv_detail::IsValidUtf8(common_name)) {
+        return InvalidArgument("certificate common name must be nonempty UTF-8 without NUL");
+    }
     RequestPtr request(X509_REQ_new(), X509_REQ_free);
     auto output = OutputBio();
-    if (!request || !output || X509_REQ_set_version(request.get(), 0L) != 1 ||
+    if (!output) return std::move(output).status();
+    if (!request || X509_REQ_set_version(request.get(), 0L) != 1 ||
         X509_REQ_set_pubkey(request.get(), key) != 1) {
         return InternalError("OpenSSL could not initialize certificate signing request");
     }
     X509_NAME* subject = X509_REQ_get_subject_name(request.get());
-    if (subject == nullptr ||
-        X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_UTF8,
+    if (subject == nullptr) return InternalError("OpenSSL could not initialize CSR subject");
+    if (X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_UTF8,
                                    reinterpret_cast<const unsigned char*>(common_name.data()),
-                                   static_cast<int>(common_name.size()), -1, 0) != 1 ||
-        X509_REQ_sign(request.get(), key, EVP_sha256()) <= 0 ||
+                                   static_cast<int>(common_name.size()), -1, 0) != 1) {
+        return InvalidArgument("certificate common name is not a valid X.509 common name");
+    }
+    if (X509_REQ_sign(request.get(), key, EVP_sha256()) <= 0 ||
         PEM_write_bio_X509_REQ(output.value().get(), request.get()) != 1) {
         return InternalError("OpenSSL could not create certificate signing request");
     }
@@ -177,114 +124,112 @@ Result<std::string> CertificateFingerprint(X509* certificate) {
     return fingerprint;
 }
 
+Result<std::chrono::system_clock::time_point> ReadTime(const ASN1_TIME* value) {
+    if (!value || ASN1_TIME_check(value) != 1)
+        return InvalidArgument("certificate contains an invalid validity time");
+    using TimePtr = std::unique_ptr<ASN1_TIME, decltype(&ASN1_TIME_free)>;
+    TimePtr epoch(ASN1_TIME_new(), ASN1_TIME_free);
+    if (!epoch || ASN1_TIME_set_string_X509(epoch.get(), "19700101000000Z") != 1)
+        return InternalError("OpenSSL could not initialize certificate time conversion");
+    int days = 0;
+    int seconds = 0;
+    if (ASN1_TIME_diff(&days, &seconds, epoch.get(), value) != 1)
+        return InvalidArgument("certificate contains an invalid validity time");
+    const std::int64_t total = static_cast<std::int64_t>(days) * 86400 + seconds;
+    using Clock = std::chrono::system_clock;
+    // Whole-second bounds are rounded toward zero: the accepted conversion cannot overflow
+    // the platform clock's duration, even when its native precision is nanoseconds.
+    const auto minimum = std::chrono::duration_cast<std::chrono::seconds>(Clock::duration::min());
+    const auto maximum = std::chrono::duration_cast<std::chrono::seconds>(Clock::duration::max());
+    if (total < minimum.count() || total > maximum.count())
+        return Status(StatusCode::kOutOfRange, "certificate time is outside system clock range");
+    return Clock::time_point(
+        std::chrono::duration_cast<Clock::duration>(std::chrono::seconds(total)));
+}
+
+Status MovedCertificate() {
+    return Status(StatusCode::kFailedPrecondition, "certificate has been moved from");
+}
+
 }  // namespace
 
-Result<std::string> CreateCertificateSigningRequest(const Path& private_key_path,
-                                                    std::string_view common_name,
-                                                    std::size_t rsa_key_bits) {
-    auto existing_key = ReadTextFile(private_key_path);
-    PkeyPtr key(nullptr, EVP_PKEY_free);
-    if (existing_key) {
-        auto parsed = ReadPrivateKey(existing_key.value());
-        if (!parsed) {
-            return std::move(parsed).status();
-        }
-        key = std::move(parsed).value();
-    } else if (existing_key.status().code() == StatusCode::kNotFound) {
-        auto generated = GeneratePrivateKey(rsa_key_bits);
-        if (!generated) {
-            return std::move(generated).status();
-        }
-        auto private_key_pem = ExportPrivateKey(generated.value().get());
-        if (!private_key_pem) {
-            return std::move(private_key_pem).status();
-        }
-        Status written = WriteTextFileAtomic(private_key_path, private_key_pem.value());
-        if (!written) {
-            return std::move(written);
-        }
-#if !defined(_WIN32)
-        if (::chmod(private_key_path.utf8().c_str(), kPrivateKeyFileMode) != 0) {
-            return PermissionError(private_key_path);
-        }
-#endif
-        key = std::move(generated).value();
-    } else {
-        return std::move(existing_key).status();
-    }
-    return CreateRequestPem(key.get(), common_name);
+struct Certificate::Impl {
+    Impl(CertificatePtr certificate, CertificateInfo metadata)
+        : certificate(std::move(certificate)), info(std::move(metadata)) {}
+    CertificatePtr certificate;
+    const CertificateInfo info;
+    // OpenSSL purpose checks may lazily populate X.509 caches.
+    mutable std::mutex mutex;
+};
+
+Certificate::Certificate(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
+Certificate::Certificate(Certificate&&) noexcept = default;
+Certificate& Certificate::operator=(Certificate&&) noexcept = default;
+Certificate::~Certificate() = default;
+
+Result<Certificate> ParseCertificatePem(std::string_view pem) {
+    auto certificate = ParseCertificate(pem);
+    if (!certificate) return std::move(certificate).status();
+    auto before = ReadTime(X509_get0_notBefore(certificate->get()));
+    if (!before) return std::move(before).status();
+    auto after = ReadTime(X509_get0_notAfter(certificate->get()));
+    if (!after) return std::move(after).status();
+    auto fingerprint = CertificateFingerprint(certificate->get());
+    if (!fingerprint) return std::move(fingerprint).status();
+    CertificateInfo info{*before, *after, std::move(fingerprint).value()};
+    return Certificate(
+        std::make_unique<Certificate::Impl>(std::move(certificate).value(), std::move(info)));
 }
 
-Result<ClientCertificateInfo> ValidateClientCertificate(std::string_view certificate_pem,
-                                                        const Path& private_key_path) {
-    auto certificate = ParseCertificate(certificate_pem);
-    if (!certificate) {
-        return std::move(certificate).status();
+Result<CertificateInfo> Certificate::GetInfo() const {
+    if (!impl_) return MovedCertificate();
+    return impl_->info;
+}
+
+Status Certificate::CheckValidityAt(std::chrono::system_clock::time_point at) const {
+    if (!impl_) return MovedCertificate();
+    if (at < impl_->info.not_before || at >= impl_->info.not_after)
+        return InvalidArgument("certificate is not valid at the supplied time");
+    return Status::Ok();
+}
+
+Status Certificate::CheckPurpose(CertificatePurpose purpose) const {
+    if (!impl_) return MovedCertificate();
+    int native_purpose;
+    switch (purpose) {
+        case CertificatePurpose::kTlsClient:
+            native_purpose = X509_PURPOSE_SSL_CLIENT;
+            break;
+        case CertificatePurpose::kTlsServer:
+            native_purpose = X509_PURPOSE_SSL_SERVER;
+            break;
+        default:
+            return InvalidArgument("unknown certificate purpose");
     }
-    auto private_key_pem = ReadTextFile(private_key_path);
-    if (!private_key_pem) {
-        return std::move(private_key_pem).status();
-    }
-    auto private_key = ReadPrivateKey(private_key_pem.value());
-    if (!private_key) {
-        return std::move(private_key).status();
-    }
+    std::lock_guard<std::mutex> guard(impl_->mutex);
     ERR_clear_error();
-    if (X509_cmp_current_time(X509_get0_notBefore(certificate.value().get())) > 0 ||
-        X509_cmp_current_time(X509_get0_notAfter(certificate.value().get())) <= 0) {
-        return InvalidArgument("client certificate is not currently valid");
-    }
-    if (X509_check_purpose(certificate.value().get(), X509_PURPOSE_SSL_CLIENT, 0) != 1) {
-        return InvalidArgument("certificate is not valid for TLS client authentication");
-    }
-    if (X509_check_private_key(certificate.value().get(), private_key.value().get()) != 1) {
-        return InvalidArgument("client certificate does not match private key");
-    }
-    const ASN1_TIME* not_after = X509_get0_notAfter(certificate.value().get());
-    struct tm expiration = {};
-    if (not_after == nullptr || ASN1_TIME_to_tm(not_after, &expiration) != 1) {
-        return InvalidArgument("certificate has an invalid expiration time");
-    }
-#if defined(_WIN32)
-    const std::time_t expiration_seconds = _mkgmtime(&expiration);
-#else
-    const std::time_t expiration_seconds = timegm(&expiration);
-#endif
-    if (expiration_seconds == static_cast<std::time_t>(-1)) {
-        return InvalidArgument("certificate expiration is outside system time range");
-    }
-    auto fingerprint = CertificateFingerprint(certificate.value().get());
-    if (!fingerprint) {
-        return std::move(fingerprint).status();
-    }
-    return ClientCertificateInfo{std::chrono::system_clock::from_time_t(expiration_seconds),
-                                 std::move(fingerprint).value()};
+    if (X509_check_purpose(impl_->certificate.get(), native_purpose, 0) != 1)
+        return InvalidArgument("certificate does not support the requested purpose");
+    return Status::Ok();
 }
 
-Result<bool> CertificateNeedsRenewal(const Path& certificate_path,
-                                     std::chrono::hours renewal_window) {
-    if (renewal_window.count() < 0) {
-        return InvalidArgument("certificate renewal window must not be negative");
-    }
-    auto certificate_text = ReadTextFile(certificate_path);
-    if (!certificate_text) {
-        return std::move(certificate_text).status();
-    }
-    auto parsed = ParseCertificate(certificate_text.value());
-    if (!parsed) {
-        return std::move(parsed).status();
-    }
-    CertificatePtr certificate = std::move(parsed).value();
-    if (!certificate) {
-        return InvalidArgument("PEM input is not a valid X.509 certificate");
-    }
-    auto renewal_time =
-        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now() + renewal_window);
-    const int comparison = X509_cmp_time(X509_get0_notAfter(certificate.get()), &renewal_time);
-    if (comparison == -2) {
-        return InvalidArgument("certificate has an invalid expiration time");
-    }
-    return comparison <= 0;
+Status Certificate::CheckPrivateKey(const RsaPrivateKey& key) const {
+    if (!impl_) return MovedCertificate();
+    EVP_PKEY* native = detail::CryptoAccess::Get(key);
+    if (!native) return Status(StatusCode::kFailedPrecondition, "key has been moved from");
+    std::lock_guard<std::mutex> guard(impl_->mutex);
+    ERR_clear_error();
+    if (X509_check_private_key(impl_->certificate.get(), native) != 1)
+        return InvalidArgument("certificate does not match private key");
+    return Status::Ok();
+}
+
+Result<std::string> CreateCertificateSigningRequest(const RsaPrivateKey& key,
+                                                    std::string_view common_name) {
+    EVP_PKEY* native = detail::CryptoAccess::Get(key);
+    if (!native) return Status(StatusCode::kFailedPrecondition, "key has been moved from");
+    ERR_clear_error();
+    return CreateRequestPem(native, common_name);
 }
 
 }  // namespace tos

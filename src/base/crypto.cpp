@@ -16,6 +16,8 @@
 #include <openssl/rsa.h>
 #include <utility>
 
+#include "crypto_internal.h"
+
 namespace tos {
 namespace {
 
@@ -323,44 +325,6 @@ Status ConfigureRsaOaep(EVP_PKEY_CTX* context, const EVP_MD* sha256) {
 }
 
 }  // namespace
-
-namespace detail {
-
-struct CryptoKey {
-    explicit CryptoKey(PkeyPtr value) : value(std::move(value)) {}
-
-    PkeyPtr value;
-};
-
-struct CryptoAccess {
-    static EVP_PKEY* Get(const RsaPrivateKey& key) noexcept {
-        return key.key_ ? key.key_->value.get() : nullptr;
-    }
-    static EVP_PKEY* Get(const RsaPublicKey& key) noexcept {
-        return key.key_ ? key.key_->value.get() : nullptr;
-    }
-    static EVP_PKEY* Get(const Ed25519PrivateKey& key) noexcept {
-        return key.key_ ? key.key_->value.get() : nullptr;
-    }
-    static EVP_PKEY* Get(const Ed25519PublicKey& key) noexcept {
-        return key.key_ ? key.key_->value.get() : nullptr;
-    }
-
-    static RsaPrivateKey MakeRsaPrivate(PkeyPtr key) {
-        return RsaPrivateKey(std::make_unique<CryptoKey>(std::move(key)));
-    }
-    static RsaPublicKey MakeRsaPublic(PkeyPtr key) {
-        return RsaPublicKey(std::make_unique<CryptoKey>(std::move(key)));
-    }
-    static Ed25519PrivateKey MakeEd25519Private(PkeyPtr key) {
-        return Ed25519PrivateKey(std::make_unique<CryptoKey>(std::move(key)));
-    }
-    static Ed25519PublicKey MakeEd25519Public(PkeyPtr key) {
-        return Ed25519PublicKey(std::make_unique<CryptoKey>(std::move(key)));
-    }
-};
-
-}  // namespace detail
 
 RsaPrivateKey::RsaPrivateKey(std::unique_ptr<detail::CryptoKey> key) noexcept
     : key_(std::move(key)) {}

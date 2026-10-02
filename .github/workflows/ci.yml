@@ -90,13 +90,19 @@ jobs:
             build/debug*/Testing/Temporary/*.log
 
   sanitizers:
-    name: Linux / ${{ matrix.preset }}
+    name: Linux / ${{ matrix.preset }} / ${{ matrix.components }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         preset: [asan-ubsan, tsan]
+        components: [base-app, crypto]
+        include:
+          - components: base-app
+            crypto: "OFF"
+          - components: crypto
+            crypto: "ON"
     env:
       CC: clang-18
       CXX: clang++-18
@@ -106,23 +112,23 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install instrumented-build tools
-        run: sudo apt-get update && sudo apt-get install -y clang-18 libclang-rt-18-dev llvm-18 ninja-build
+        run: sudo apt-get update && sudo apt-get install -y clang-18 libclang-rt-18-dev llvm-18 ninja-build libssl-dev
       - name: Configure TSan address space on this disposable runner
         if: matrix.preset == 'tsan'
         run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: Configure sanitizer
-        run: python tests/run_logged.py build/logs/configure.log cmake --preset ${{ matrix.preset }}
+        run: python tests/run_logged.py build/logs/configure.log cmake --preset ${{ matrix.preset }} -B build/${{ matrix.preset }}-${{ matrix.components }} -DTOS_ENABLE_CRYPTO=${{ matrix.crypto }}
       - name: Build libraries, fixtures, helpers and tests
-        run: python tests/run_logged.py build/logs/build.log cmake --build --preset ${{ matrix.preset }}
+        run: python tests/run_logged.py build/logs/build.log cmake --build build/${{ matrix.preset }}-${{ matrix.components }} --parallel 2
       - name: Check fault detection, full suite and twenty lifetime repetitions
-        run: python tests/run_logged.py build/logs/sanitizer-verification.log python tests/verify_sanitizers.py --preset ${{ matrix.preset }}
+        run: python tests/run_logged.py build/logs/sanitizer-verification.log python tests/verify_sanitizers.py --preset ${{ matrix.preset }} --build-dir build/${{ matrix.preset }}-${{ matrix.components }}
       - name: Upload sanitizer diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: tos-${{ matrix.preset }}-logs
+          name: tos-${{ matrix.preset }}-${{ matrix.components }}-logs
           path: |
             build/logs/*.log
-            build/${{ matrix.preset }}/CMakeFiles/CMakeConfigureLog.yaml
-            build/${{ matrix.preset }}/sanitizer-logs/*.log
-            build/${{ matrix.preset }}/Testing/Temporary/*.log
+            build/${{ matrix.preset }}-${{ matrix.components }}/CMakeFiles/CMakeConfigureLog.yaml
+            build/${{ matrix.preset }}-${{ matrix.components }}/sanitizer-logs/*.log
+            build/${{ matrix.preset }}-${{ matrix.components }}/Testing/Temporary/*.log

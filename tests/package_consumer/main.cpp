@@ -47,7 +47,12 @@ int main() {
     if (tos::Sha256String("abc") !=
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
         return 4;
-    if (tos::ValidateClientCertificate("", tos::Path{})) return 5;
+    auto key = tos::GenerateRsaPrivateKey(2048);
+    if (!key) return 13;
+    auto request = tos::CreateCertificateSigningRequest(key.value(), "package-consumer");
+    if (!request || request->find("-----BEGIN CERTIFICATE REQUEST-----") != 0) return 14;
+    auto certificate = tos::ParseCertificatePem("");
+    if (certificate || !tos::IsInvalidArgument(certificate.status())) return 5;
 #endif
 #ifdef TOS_TEST_HTTP
     const auto response = tos::PerformHttpRequest(tos::HttpRequest{});

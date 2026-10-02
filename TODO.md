@@ -46,6 +46,7 @@
   - 验收：`tests/verify_components.py` 验证五种组合、源码/安装消费、安装前缀迁移、组件及版本错误；三平台 CI 执行同一验证。
 - [ ] `P0-05` 建立质量门禁：Debug/Release、ASan/UBSan、TSan（支持的平台）、clang-format、clang-tidy、coverage、fuzz 的 CMake presets；为 CTest 统一标签和超时。
   - 已接入三平台 Debug/Release、Linux ASan/UBSan/TSan、故障探针和生命周期重复验证；配置默认不插桩。原生 CI 结果以实际运行记录为准。
+  - 证书边界收窄：crypto 仅提供内存 CSR、Certificate 解析与独立属性检查；存储、信任与续期属于调用方。Linux sanitizer CI 增加独立 crypto 构建，默认 presets 仍只选 base/app，Certificate 生命周期与并发检查纳入 20 次重复。
   - 待完成：clang-tidy、coverage、fuzz 的预设与门禁；本项暂不标记完成。
   - 验收：本机与 CI 均执行相应矩阵，失败信息可定位到组件和测试。
 
