@@ -1,5 +1,6 @@
 #include "tos/base/base64.h"
 #include "tos/base/file_lock.h"
+#include "tos/base/scope_exit.h"
 #include "tos/base/secure_random.h"
 #include "tos/base/termination.h"
 #include "tos/base/thread_pool.h"
@@ -16,6 +17,12 @@
 #endif
 
 int main() {
+    int cleaned = 0;
+    {
+        auto guard = tos::MakeScopeExit([&] { ++cleaned; });
+        auto moved = std::move(guard);
+    }
+    if (cleaned != 1) return 12;
     const auto decoded = tos::Base64Decode("Zg==");
     if (!decoded || decoded->size() != 1 || (*decoded)[0] != 'f') return 1;
     tos::ThreadPool pool(1);

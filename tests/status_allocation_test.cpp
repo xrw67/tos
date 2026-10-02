@@ -1,12 +1,16 @@
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <gtest/gtest.h>
 #include <limits>
 #include <new>
 #include <string>
 #include <utility>
 
+#include "test_util.h"
+#include "tos/base/filesystem.h"
 #include "tos/base/result.h"
+#include "tos/base/scope_exit.h"
 #include "tos/base/status.h"
 
 namespace {
@@ -93,6 +97,47 @@ void operator delete[](void* memory, const std::nothrow_t&) noexcept { ::operato
 
 namespace tos {
 namespace {
+
+TEST(ScopeExitAllocationTest, CreationMoveReleaseAndCleanupDoNotAllocate) {
+    AllocationCounts counts;
+    counts.fail_after = 0;
+    int cleaned = 0;
+    {
+        CountScope scope(counts);
+        auto first = MakeScopeExit([&] { ++cleaned; });
+        auto moved = std::move(first);
+        auto released = MakeScopeExit([&] { ++cleaned; });
+        released.Release();
+    }
+    EXPECT_EQ(cleaned, 1);
+    EXPECT_EQ(counts.attempts, 0u);
+    EXPECT_EQ(counts.allocations, 0u);
+}
+
+TEST(ResourceAllocationTest, AtomicWriterAllocationFailuresLeaveNoTemporaryFiles) {
+    test::TemporaryDirectory directory("tos-atomic-allocation-");
+    auto destination = Path::Parse((directory.path() / "destination").u8string());
+    ASSERT_TRUE(destination);
+    bool succeeded = false;
+    std::size_t failures = 0;
+    for (std::size_t fail_after = 0; fail_after < 128; ++fail_after) {
+        AllocationCounts counts;
+        counts.fail_after = fail_after;
+        {
+            CountScope scope(counts);
+            try {
+                auto writer = AtomicFileWriter::Create(destination.value());
+                succeeded = writer.ok();
+            } catch (const std::bad_alloc&) {
+                ++failures;
+            }
+        }
+        EXPECT_TRUE(std::filesystem::is_empty(directory.path())) << fail_after;
+        if (succeeded) break;
+    }
+    EXPECT_TRUE(succeeded);
+    EXPECT_GT(failures, 0U);
+}
 
 TEST(StatusAllocationTest, SuccessDoesNotAllocateEvenWhenAllocationFails) {
     std::string message(1024, 'x');

@@ -1,4 +1,31 @@
+# Invalid cleanup types must be rejected by the independently includable public header.
+# Function scope prevents the probe's target type from leaking into parent checks.
+function(tos_check_scope_exit_constraints)
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    foreach(scenario throwing_move throwing_destructor non_callable)
+        set(callback "struct Callback { Callback() = default; Callback(Callback&&) noexcept = default; ~Callback() noexcept = default; void operator()() {} };\n")
+        if(scenario STREQUAL "throwing_move")
+            string(REPLACE "Callback(Callback&&) noexcept = default" "Callback(Callback&&) noexcept(false) {}" callback "${callback}")
+        elseif(scenario STREQUAL "throwing_destructor")
+            string(REPLACE "~Callback() noexcept = default" "~Callback() noexcept(false) {}" callback "${callback}")
+        else()
+            string(REPLACE "void operator()() {}" "" callback "${callback}")
+        endif()
+        set(probe "${CMAKE_CURRENT_BINARY_DIR}/scope_exit_${scenario}.cpp")
+        file(WRITE "${probe}" "#include \"${PROJECT_SOURCE_DIR}/include/tos/base/scope_exit.h\"\n${callback}void probe() { tos::ScopeExit guard(Callback{}); }\n")
+        try_compile(accepted "${CMAKE_CURRENT_BINARY_DIR}/scope_exit_${scenario}"
+            "${probe}" CMAKE_FLAGS "-DCMAKE_CXX_STANDARD=17" OUTPUT_VARIABLE diagnostics)
+        if(accepted)
+            message(FATAL_ERROR "ScopeExit accepted invalid callback: ${scenario}")
+        endif()
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/scope_exit_${scenario}.log" "${diagnostics}")
+    endforeach()
+endfunction()
+tos_check_scope_exit_constraints()
+
 add_executable(tos_unit_tests
+    scope_exit_test.cpp
+    native_resource_test.cpp
     base_test.cpp
     cli11_test.cpp
     status_test.cpp
@@ -26,6 +53,7 @@ add_executable(tos_unit_tests
 )
 
 target_link_libraries(tos_unit_tests PRIVATE tos::base GTest::gtest_main)
+target_include_directories(tos_unit_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/base")
 tos_target_defaults(tos_unit_tests)
 if(TOS_ENABLE_CRYPTO)
     target_sources(tos_unit_tests PRIVATE crypto_test.cpp certificate_test.cpp)
@@ -80,6 +108,14 @@ target_compile_definitions(tos_unit_tests PRIVATE
     TOS_DYNAMIC_LIBRARY_LIFETIME_HELPER="$<TARGET_FILE:tos_dynamic_library_lifetime_helper>"
     TOS_DYNAMIC_LIBRARY_LIFETIME_MODULE="$<TARGET_FILE:tos_dynamic_library_lifetime_module>")
 add_dependencies(tos_unit_tests tos_dynamic_library_lifetime_helper tos_dynamic_library_lifetime_module)
+
+add_executable(tos_resource_test_helper resource_test_helper.cpp)
+target_link_libraries(tos_resource_test_helper PRIVATE tos::base)
+target_include_directories(tos_resource_test_helper PRIVATE "${PROJECT_SOURCE_DIR}/src/base")
+tos_target_defaults(tos_resource_test_helper)
+target_compile_definitions(tos_unit_tests PRIVATE
+    TOS_RESOURCE_TEST_HELPER="$<TARGET_FILE:tos_resource_test_helper>")
+add_dependencies(tos_unit_tests tos_resource_test_helper)
 
 add_executable(tos_process_test_helper process_test_helper.cpp)
 target_link_libraries(tos_process_test_helper PRIVATE tos::base)

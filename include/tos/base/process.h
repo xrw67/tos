@@ -93,7 +93,8 @@ class [[nodiscard]] Process {
 /// A nonzero exit still returns CommandResult. A non-positive timeout, malformed environment, or
 /// NUL argument returns kInvalidArgument. Timeout terminates and reaps the child before kTimeout;
 /// output-limit overflow does so before kResourceExhausted. Concurrent instances are safe, subject
-/// to ProcessOptions' process-global environment caveat. Allocation exceptions propagate.
+/// to ProcessOptions' process-global environment caveat. Allocation and thread-start exceptions
+/// propagate after terminating/reaping the direct child and joining started capture threads.
 [[nodiscard]] Result<CommandResult> RunCommand(const ProcessOptions& process_options,
                                                const RunCommandOptions& options = {});
 

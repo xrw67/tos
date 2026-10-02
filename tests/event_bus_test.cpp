@@ -110,7 +110,7 @@ TEST(EventBusTest, ResetWaitsForOtherThreadCallbacksAndSelfResetDoesNotDeadlock)
 
     tos::Status publish_status;
     std::thread publisher([&] { publish_status = events.PublishSync(NumberEvent{1}); });
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         {
             std::lock_guard<std::mutex> lock(mutex);
             proceed = true;
@@ -168,7 +168,7 @@ TEST(EventBusTest, ShutdownWaitsForOtherThreadCallbacksAndSupportsConcurrentOper
     auto subscription = std::move(subscription_result).value();
 
     std::thread publisher([&] { static_cast<void>(events.PublishSync(NumberEvent{1})); });
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         {
             std::lock_guard<std::mutex> lock(mutex);
             proceed = true;
@@ -260,7 +260,7 @@ TEST(EventBusTest, ResetAndShutdownWaitForEveryActivePublisher) {
         std::promise<tos::Status> closing_result;
         auto finished = closing_result.get_future();
         std::vector<std::thread> threads;
-        tos::test::ScopeExit cleanup([&] {
+        tos::ScopeExit cleanup([&] {
             release.Open();
             for (auto& thread : threads)
                 if (thread.joinable()) thread.join();
@@ -301,7 +301,7 @@ TEST(EventBusTest, ConcurrentExceptionsReleasePublicationAndCallbackCounts) {
     ASSERT_TRUE(result);
     auto subscription = std::move(result).value();
     std::vector<std::thread> threads;
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         release.Open();
         for (auto& thread : threads)
             if (thread.joinable()) thread.join();

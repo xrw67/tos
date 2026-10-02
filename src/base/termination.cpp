@@ -9,6 +9,8 @@
 #include <mutex>
 #include <thread>
 
+#include "native_resource.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -25,10 +27,10 @@ struct TerminationState {
     // Zero means no request; positive values encode TerminationReason + 1.
     std::atomic<int> request{0};
 #ifdef _WIN32
-    HANDLE event{nullptr};
+    UniqueHandle event;
 #else
-    int read_fd{-1};
-    int write_fd{-1};
+    UniqueFd read_fd;
+    UniqueFd write_fd;
     std::array<struct sigaction, 2> previous{};
 #endif
 
@@ -39,12 +41,12 @@ struct TerminationState {
         int expected = 0;
         if (!request.compare_exchange_strong(expected, encoded)) return;
 #ifdef _WIN32
-        SetEvent(event);
+        SetEvent(event.Get());
 #else
         const unsigned char byte = 1;
         ssize_t result;
         do {
-            result = write(write_fd, &byte, 1);
+            result = write(write_fd.Get(), &byte, 1);
         } while (result < 0 && errno == EINTR);
 #endif
     }
@@ -107,32 +109,32 @@ Status TerminationController::Install() {
         return Status(StatusCode::kAlreadyExists, "another termination controller is active");
     state_->request.store(0);
 #ifdef _WIN32
-    state_->event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    state_->event.Reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     if (!state_->event) return WindowsError(GetLastError(), "create termination event");
     active_state.store(state_.get());
     if (!SetConsoleCtrlHandler(ConsoleHandler, TRUE)) {
         const DWORD error = GetLastError();
         active_state.store(nullptr);
-        CloseHandle(state_->event);
-        state_->event = nullptr;
+        while (active_handlers.load() != 0) std::this_thread::yield();
+        state_->event.Reset();
         return WindowsError(error, "install console termination handler");
     }
 #else
     int descriptors[2];
     if (pipe(descriptors) != 0) return ErrnoError(errno, "create termination pipe");
+    detail::UniqueFd read_fd(descriptors[0]);
+    detail::UniqueFd write_fd(descriptors[1]);
     for (int descriptor : descriptors) {
         const int fd_flags = fcntl(descriptor, F_GETFD);
         const int flags = fcntl(descriptor, F_GETFL);
         if (fd_flags < 0 || flags < 0 || fcntl(descriptor, F_SETFD, fd_flags | FD_CLOEXEC) < 0 ||
             fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) < 0) {
             const int error = errno;
-            close(descriptors[0]);
-            close(descriptors[1]);
             return ErrnoError(error, "configure termination pipe");
         }
     }
-    state_->read_fd = descriptors[0];
-    state_->write_fd = descriptors[1];
+    state_->read_fd = std::move(read_fd);
+    state_->write_fd = std::move(write_fd);
     struct sigaction action = {};
     action.sa_handler = SignalHandler;
     sigemptyset(&action.sa_mask);
@@ -143,9 +145,8 @@ Status TerminationController::Install() {
         if (interrupt_installed) sigaction(SIGINT, &state_->previous[0], nullptr);
         active_state.store(nullptr);
         while (active_handlers.load() != 0) std::this_thread::yield();
-        close(state_->read_fd);
-        close(state_->write_fd);
-        state_->read_fd = state_->write_fd = -1;
+        state_->read_fd.Reset();
+        state_->write_fd.Reset();
         return ErrnoError(error, "install termination signal handlers");
     }
 #endif
@@ -170,13 +171,13 @@ Result<TerminationReason> TerminationController::Wait(std::chrono::milliseconds 
         const DWORD duration =
             infinite ? INFINITE
                      : static_cast<DWORD>(std::min<std::int64_t>(remaining.count(), INFINITE - 1));
-        const DWORD result = WaitForSingleObject(state_->event, duration);
+        const DWORD result = WaitForSingleObject(state_->event.Get(), duration);
         if (result == WAIT_FAILED) return WindowsError(GetLastError(), "wait for termination");
 #else
         const int duration = infinite ? -1
                                       : static_cast<int>(std::min<std::int64_t>(
                                             remaining.count(), std::numeric_limits<int>::max()));
-        pollfd descriptor{state_->read_fd, POLLIN, 0};
+        pollfd descriptor{state_->read_fd.Get(), POLLIN, 0};
         const int result = poll(&descriptor, 1, duration);
         if (result < 0) {
             if (errno == EINTR) continue;
@@ -210,12 +211,10 @@ void TerminationController::Uninstall() noexcept {
     active_state.store(nullptr);
     while (active_handlers.load() != 0) std::this_thread::yield();
 #ifdef _WIN32
-    CloseHandle(state_->event);
-    state_->event = nullptr;
+    state_->event.Reset();
 #else
-    close(state_->read_fd);
-    close(state_->write_fd);
-    state_->read_fd = state_->write_fd = -1;
+    state_->read_fd.Reset();
+    state_->write_fd.Reset();
 #endif
     state_->request.store(0);
 }

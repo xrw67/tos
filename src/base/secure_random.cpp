@@ -7,6 +7,8 @@
 #include <string_view>
 #include <utility>
 
+#include "native_resource.h"
+
 #ifdef _WIN32
 #include <bcrypt.h>
 #else
@@ -23,9 +25,9 @@ namespace tos {
 namespace {
 
 #if !defined(_WIN32) && !defined(__APPLE__)
-Status RandomError(std::string_view operation) {
+Status RandomError(int error, std::string_view operation) {
     return Status(StatusCode::kUnavailable,
-                  std::string(operation) + ": errno " + std::to_string(errno));
+                  std::string(operation) + ": errno " + std::to_string(error));
 }
 #endif
 
@@ -70,7 +72,7 @@ Result<std::string> SecureRandomBytes(std::size_t size) {
             continue;
         }
         if (count < 0 && errno != ENOSYS && errno != EPERM) {
-            return RandomError("generate secure random bytes");
+            return RandomError(errno, "generate secure random bytes");
         }
         break;
     }
@@ -79,12 +81,12 @@ Result<std::string> SecureRandomBytes(std::size_t size) {
         return bytes;
     }
 
-    const int descriptor = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-    if (descriptor < 0) {
-        return RandomError("open secure random source");
+    detail::UniqueFd descriptor(open("/dev/urandom", O_RDONLY | O_CLOEXEC));
+    if (!descriptor) {
+        return RandomError(errno, "open secure random source");
     }
     while (offset < size) {
-        const ssize_t count = read(descriptor, bytes.data() + offset, size - offset);
+        const ssize_t count = read(descriptor.Get(), bytes.data() + offset, size - offset);
         if (count > 0) {
             offset += static_cast<std::size_t>(count);
             continue;
@@ -93,12 +95,11 @@ Result<std::string> SecureRandomBytes(std::size_t size) {
             continue;
         }
         const int error = count < 0 ? errno : EIO;
-        close(descriptor);
-        errno = error;
-        return RandomError("read secure random source");
+        return RandomError(error, "read secure random source");
     }
-    if (close(descriptor) != 0) {
-        return RandomError("close secure random source");
+    const int close_error = descriptor.Close();
+    if (close_error) {
+        return RandomError(close_error, "close secure random source");
     }
     return bytes;
 #endif

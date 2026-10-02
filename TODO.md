@@ -67,6 +67,10 @@
   - 实现及自动化测试已具备；待 Linux/macOS/Windows 原生 CI 运行证据后标记完成。
   - 验收：覆盖随机源、跨进程锁、持久性模式、移动清理及原生终止通知。Windows 显式拒绝目录同步，支持文件刷新及 WRITE_THROUGH；POSIX 支持同步文件及父目录。
 
+- [ ] `P1-08` 提供轻量资源管理工具：公开 C++17 `ScopeExit`，内部统一 POSIX fd/Windows HANDLE RAII，并覆盖平台实现与 Process 的异常清理。
+  - 实现、macOS Debug/Release 与本地 Linux sanitizer 验证已具备；待三平台原生 CI 证据后标记完成。
+  - 验收：ScopeExit 的移动、取消、展开、终止及无分配；原生资源的转移、释放和错误码保留；Process 线程启动失败后的回收/join 均有自动化测试。私有头不安装，三平台原生 CI 证据齐备后标记完成。
+
 ### P2：任务、生命周期与模块通信
 
 - [x] `P2-01` 实现 `Executor`、有界 `ThreadPool`、future 结果、取消令牌、统计和幂等关闭。

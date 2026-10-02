@@ -4,7 +4,7 @@ C++ 快速应用开发库，为应用提供可复用的基础组件，减少工�
 
 ## 构建与验证
 
-当前已实现仅头文件的 `Status`、`Result<T>`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，不依赖 OpenSSL 的 Base64、链接系统 OpenSSL 的 `crypto`、链接系统 libcurl 的同步 HTTP、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
+当前已实现仅头文件的 `Status`、`Result<T>`、`ScopeExit`、`span`、`string`、`random`、`Time`、`Duration`、`Config` 和 `LayeredConfig`，不依赖 OpenSSL 的 Base64、链接系统 OpenSSL 的 `crypto`、链接系统 libcurl 的同步 HTTP、进程环境 `environment`、同步结构化 `logging`、UTF-8 `filesystem`、跨平台 `process`、Windows `registry` 和模块化 Application 框架；并提供 GoogleTest 单元测试、示例和三平台 CI。
 
 ### 环境要求
 
@@ -219,7 +219,7 @@ Linux/macOS 的 GCC/Clang，编译器无法链接对应运行时则配置失败�
 非法选项和不支持的平台明确报错。
 
 验证脚本先在独立进程运行故意越界、整数溢出或数据竞争探针，检查对应报告及失败退出码；
-探针不注册为正常 CTest。然后运行全部适用测试，并将 EventBus、线程池、动态库和 App
+探针不注册为正常 CTest。然后运行全部适用测试，并将 EventBus、线程池、动态库、App、ScopeExit、原生资源及 Process
 生命周期测试重复 20 次，遇错即停。Linux ASan 开启泄漏检测，UBSan/TSan 遇错退出，
 不自动忽略报告或跳过测试。Linux CI 的 TSan 任务仅在临时 runner 上将
 `vm.mmap_rnd_bits` 设为 28，以兼容其影子内存布局；本地运行需提供兼容的地址空间布局。
@@ -252,6 +252,14 @@ Clang 18 ASan/UBSan、TSan 各通过故障探针、237 项完整测试及 47 项
 20 次重复运行；GCC 13 的 base/app Debug 配置也通过 237 项测试。容器测试以普通用户
 执行，权限用例没有跳过。插桩源码消费检查确认父项目编译参数及编译探针配置未被修改。
 这些结果不代表 GitHub x64 runner 或 Windows 原生 CI 已执行成功。
+
+2026-10-02 轻量资源工具验证：macOS arm64 完整 Debug/Release 各通过 268 项测试，
+五种 Release 组件组合、源码消费及迁移后的安装消费均通过，安装消费覆盖 ScopeExit。
+本地 Ubuntu 24.04 ARM64 容器以普通用户运行 Clang 18 ASan/UBSan 与 TSan：各通过
+故障探针、253 项完整测试和 67 项生命周期测试各 20 次重复运行。无效回调的三个编译
+探针均按预期拒绝；全部非 vendor C++ 文件通过 clang-format 18 检查。Pallas Agent
+Debug 的 53 项测试通过。以上为本机及本地容器证据，未运行 GitHub 或 Windows 原生 CI；
+既有三平台 CI 会执行新增测试，`P0-05` 的 clang-tidy、coverage、fuzz 待办保持不变。
 
 ## 状态与结果
 
@@ -386,6 +394,24 @@ Status 仅保存一个 `std::unique_ptr<ErrorRep>`：`nullptr` 表示成功，�
 - 移动后的源 Status 现在变为成功状态；移动后的失败 Result 则报告错误已被移走的 `kInternal`，不再保留原错误码。
 - Status 和 Result 的对象布局发生变化，所有使用方必须重新编译，不与旧构建产物保持 ABI 兼容。
 - `StatusCode` 增加了可操作的失败类别；既有 `kOk`、`kInvalidArgument`、`kNotFound`、`kTimeout` 和 `kInternal` 的数值保持不变。错误码语义参考通用 RPC 约定，但不承诺与 Abseil 的枚举数值或 ABI 兼容。
+
+## ScopeExit 与内部资源所有权
+
+`<tos/base/scope_exit.h>` 提供 `tos::ScopeExit<F>`、C++17 类型推导及
+`tos::MakeScopeExit(callback)`。guard 在正常退出、提前返回或异常展开时执行一次清理；
+`Release()` 幂等地取消清理，移动构造将清理责任转移到新对象。禁止复制和移动赋值，
+支持捕获 `std::unique_ptr` 等 move-only 状态，guard 自身不分配内存。
+
+回调必须可无异常移动和析构；复制回调时的异常直接传播。可以使用未标记 `noexcept`
+的普通 lambda，但清理必须实际不抛异常：析构始终 `noexcept`，清理异常会触发
+`std::terminate`。捕获引用必须活到 guard 清理结束，同一 guard 的并发操作需要外部同步。
+完整可运行用法见 `examples/scope_exit.cpp`，该示例由 CTest 执行。
+
+文件、随机源、文件锁、终止控制器和 Process 使用私有的文件描述符/HANDLE RAII 封装。
+借用原生值不转移所有权；内部显式关闭能返回原生错误，析构尽力关闭且保留原有错误码。
+封装不安装、不公开，也不处理 socket、动态库或注册表的不同释放协议。
+RunCommand 若启动读取线程失败，会先终止并回收直属子进程，再 join 已启动线程，
+最后传播原异常；既有输出限制、超时和停止合同继续成立。
 
 ## Span
 

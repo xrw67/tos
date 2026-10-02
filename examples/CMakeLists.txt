@@ -1,3 +1,6 @@
+add_executable(tos_scope_exit_example scope_exit.cpp)
+target_link_libraries(tos_scope_exit_example PRIVATE tos::base)
+
 add_executable(tos_minimal minimal.cpp)
 target_link_libraries(tos_minimal PRIVATE tos::base)
 
@@ -20,6 +23,9 @@ add_executable(tos_scheduler_example scheduler.cpp)
 target_link_libraries(tos_scheduler_example PRIVATE tos::base)
 
 if(BUILD_TESTING)
+    add_test(NAME tos.scope_exit_example COMMAND tos_scope_exit_example)
+    set_tests_properties(tos.scope_exit_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
+
     add_test(
         NAME tos.example
         COMMAND "${CMAKE_COMMAND}"
@@ -47,7 +53,7 @@ if(BUILD_TESTING)
     set_tests_properties(tos.scheduler_example PROPERTIES LABELS example TIMEOUT ${TOS_TEST_TIMEOUT})
 endif()
 
-foreach(target tos_minimal tos_logging_example tos_process_example tos_scheduler_example tos_application_example tos_debug_example)
+foreach(target tos_scope_exit_example tos_minimal tos_logging_example tos_process_example tos_scheduler_example tos_application_example tos_debug_example)
     if(TARGET ${target})
         tos_target_defaults(${target})
     endif()

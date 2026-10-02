@@ -7,25 +7,16 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 #include <utility>
 
+#include "tos/base/scope_exit.h"
+#include "tos/base/uuid.h"
+
 namespace tos {
 namespace test {
-
-// Test-owned threads must be released and joined even after a fatal assertion.
-template <typename F>
-class ScopeExit {
-   public:
-    explicit ScopeExit(F cleanup) : cleanup_(std::move(cleanup)) {}
-    ScopeExit(const ScopeExit&) = delete;
-    ScopeExit& operator=(const ScopeExit&) = delete;
-    ~ScopeExit() { cleanup_(); }
-
-   private:
-    F cleanup_;
-};
 
 class Gate {
    public:
@@ -48,8 +39,10 @@ class Gate {
 class TemporaryDirectory {
    public:
     explicit TemporaryDirectory(std::string name_prefix) {
-        path_ = std::filesystem::temp_directory_path() /
-                (std::move(name_prefix) + std::to_string(next_id_.fetch_add(1)));
+        // Independent CTest processes and concurrently running build trees must not share paths.
+        auto id = GenerateUuidV4();
+        if (!id) throw std::runtime_error(std::string(id.status().message()));
+        path_ = std::filesystem::temp_directory_path() / (std::move(name_prefix) + id.value());
         std::filesystem::create_directories(path_);
     }
 
@@ -64,7 +57,6 @@ class TemporaryDirectory {
     [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
 
    private:
-    inline static std::atomic<std::uint64_t> next_id_{0};
     std::filesystem::path path_;
 };
 

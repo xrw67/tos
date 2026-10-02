@@ -11,6 +11,8 @@
 #include <system_error>
 #include <utility>
 
+#include "native_resource.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -103,9 +105,9 @@ FileType ToFileType(std::filesystem::file_type type) noexcept {
 #ifdef _WIN32
 Status WriteDirectWindows(const std::filesystem::path& target, const Path& display_path,
                           std::string_view text) {
-    HANDLE handle = CreateFileW(target.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
-                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (handle == INVALID_HANDLE_VALUE) {
+    detail::UniqueHandle handle(CreateFileW(target.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr,
+                                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!handle) {
         return WindowsFileError(GetLastError(), "could not open file", display_path);
     }
 
@@ -117,7 +119,7 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
         const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(
             remaining, static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
         DWORD written = 0;
-        if (!WriteFile(handle, text.data() + offset, chunk, &written, nullptr) ||
+        if (!WriteFile(handle.Get(), text.data() + offset, chunk, &written, nullptr) ||
             written != chunk) {
             success = false;
             failure = GetLastError();
@@ -125,13 +127,14 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
         }
         offset += written;
     }
-    if (success && !FlushFileBuffers(handle)) {
+    if (success && !FlushFileBuffers(handle.Get())) {
         success = false;
         failure = GetLastError();
     }
-    if (!CloseHandle(handle) && success) {
+    const DWORD close_error = handle.Close();
+    if (close_error && success) {
         success = false;
-        failure = GetLastError();
+        failure = close_error;
     }
     return success ? Status::Ok() : WindowsFileError(failure, "could not write file", display_path);
 }
@@ -139,8 +142,8 @@ Status WriteDirectWindows(const std::filesystem::path& target, const Path& displ
 #else
 Status WriteDirectPosix(const std::filesystem::path& target, const Path& display_path,
                         std::string_view text) {
-    const int descriptor = open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (descriptor == -1) {
+    detail::UniqueFd descriptor(open(target.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
+    if (!descriptor) {
         return ErrnoFileError(errno, "could not open file", display_path);
     }
 
@@ -148,7 +151,7 @@ Status WriteDirectPosix(const std::filesystem::path& target, const Path& display
     int failure = 0;
     std::size_t offset = 0;
     while (offset < text.size()) {
-        const ssize_t written = write(descriptor, text.data() + offset, text.size() - offset);
+        const ssize_t written = write(descriptor.Get(), text.data() + offset, text.size() - offset);
         if (written < 0) {
             if (errno == EINTR) {
                 continue;
@@ -164,9 +167,10 @@ Status WriteDirectPosix(const std::filesystem::path& target, const Path& display
         }
         offset += static_cast<std::size_t>(written);
     }
-    if (close(descriptor) != 0 && success) {
+    const int close_error = descriptor.Close();
+    if (close_error && success) {
         success = false;
-        failure = errno;
+        failure = close_error;
     }
     return success ? Status::Ok() : ErrnoFileError(failure, "could not write file", display_path);
 }

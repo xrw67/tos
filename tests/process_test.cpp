@@ -1,12 +1,25 @@
 #include "tos/base/process.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
+
+#include "native_resource.h"
+#include "process_internal.h"
+#include "test_util.h"
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace tos {
 namespace {
@@ -59,11 +72,9 @@ TEST(ProcessTest, StartsWaitsAndTerminatesOwnedChildren) {
 }
 
 TEST(ProcessTest, AppliesWorkingDirectoryAndEnvironmentOverrides) {
-    const std::filesystem::path directory =
-        std::filesystem::temp_directory_path() / "tos-process-working-directory";
+    test::TemporaryDirectory temporary("tos-process-working-directory-");
+    const auto& directory = temporary.path();
     std::error_code error;
-    std::filesystem::create_directories(directory, error);
-    ASSERT_FALSE(error);
     auto working_directory = Path::Parse(directory.u8string());
     ASSERT_TRUE(working_directory);
 
@@ -105,8 +116,6 @@ TEST(ProcessTest, AppliesWorkingDirectoryAndEnvironmentOverrides) {
         ASSERT_EQ(unsetenv("TOS_PROCESS_TEST_VALUE"), 0);
     }
 #endif
-
-    std::filesystem::remove_all(directory, error);
 }
 
 TEST(ProcessTest, RejectsInvalidInputsAndReportsMissingExecutables) {
@@ -144,6 +153,118 @@ TEST(ProcessTest, EnforcesTimeoutAndDrainsLargeOutputWithoutBlocking) {
         RunCommand(Helper({"large", "65536", "65536"}), limited);
     EXPECT_FALSE(too_large);
     EXPECT_EQ(too_large.status().code(), StatusCode::kResourceExhausted);
+}
+
+std::size_t OpenResourceCount() {
+#ifdef _WIN32
+    DWORD count = 0;
+    if (!GetProcessHandleCount(GetCurrentProcess(), &count))
+        throw std::runtime_error("handle count");
+    return count;
+#else
+    std::size_t count = 0;
+    for (int fd = 0; fd < 4096; ++fd) {
+        if (fcntl(fd, F_GETFD) != -1) ++count;
+    }
+    return count;
+#endif
+}
+
+struct ThreadFailureState {
+    explicit ThreadFailureState(int index) : fail_at(index) {}
+    int fail_at;
+    int calls{0};
+    std::atomic<int> completed{0};
+    std::uint64_t child_id{0};
+#ifdef _WIN32
+    detail::UniqueHandle observed_child;
+#endif
+};
+
+std::thread FailingThreadFactory(void (*entry)(void*), void* argument, std::uint64_t child_id,
+                                 void* context) {
+    auto& state = *static_cast<ThreadFailureState*>(context);
+    state.child_id = child_id;
+    if (++state.calls == state.fail_at) {
+#ifdef _WIN32
+        state.observed_child.Reset(OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(child_id)));
+#endif
+        throw std::runtime_error("injected capture thread failure");
+    }
+    return std::thread([entry, argument, &state] {
+        entry(argument);
+        ++state.completed;
+    });
+}
+
+void ExpectReaped(std::uint64_t child_id) {
+#ifndef _WIN32
+    EXPECT_EQ(waitpid(static_cast<pid_t>(child_id), nullptr, WNOHANG), -1);
+    EXPECT_EQ(errno, ECHILD);
+#else
+    detail::UniqueHandle child(OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(child_id)));
+    if (child) EXPECT_EQ(WaitForSingleObject(child.Get(), 0), WAIT_OBJECT_0);
+#endif
+}
+
+TEST(ProcessTest, FirstAndSecondCaptureThreadFailuresReapJoinAndReleaseResources) {
+    for (int fail_at : {1, 2}) {
+        ThreadFailureState state{fail_at};
+        const auto resources = OpenResourceCount();
+        try {
+            static_cast<void>(detail::RunCommandWithThreadFactory(
+                Helper({"sleep", "30000", "0"}), {}, FailingThreadFactory, &state));
+            FAIL() << "Expected injected thread failure";
+        } catch (const std::runtime_error& failure) {
+            EXPECT_STREQ(failure.what(), "injected capture thread failure");
+        }
+        EXPECT_EQ(state.calls, fail_at);
+        EXPECT_EQ(state.completed.load(), fail_at - 1);
+        ASSERT_NE(state.child_id, 0U);
+#ifdef _WIN32
+        ASSERT_TRUE(state.observed_child);
+        EXPECT_EQ(WaitForSingleObject(state.observed_child.Get(), 0), WAIT_OBJECT_0);
+        state.observed_child.Reset();
+#else
+        ExpectReaped(state.child_id);
+#endif
+        EXPECT_EQ(OpenResourceCount(), resources);
+    }
+}
+
+TEST(ProcessTest, RepeatedLaunchFailuresReleaseCapturePipes) {
+    auto missing = Path::Parse("tos-process-missing-executable");
+    ASSERT_TRUE(missing);
+    const ProcessOptions options{std::move(missing).value(), {}, std::nullopt, {}};
+    const auto resources = OpenResourceCount();
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        auto result = RunCommand(options);
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.status().code(), StatusCode::kNotFound);
+    }
+    EXPECT_EQ(OpenResourceCount(), resources);
+}
+
+TEST(ProcessTest, MoveAssignmentAndDestructionReapOwnedChildren) {
+    const auto resources = OpenResourceCount();
+    std::uint64_t final_child = 0;
+    {
+        auto first = Process::Start(Helper({"sleep", "30000", "0"}));
+        auto second = Process::Start(Helper({"sleep", "30000", "0"}));
+        ASSERT_TRUE(first);
+        ASSERT_TRUE(second);
+        const auto replaced_child = first->id();
+        final_child = second->id();
+        *first = std::move(*second);
+        EXPECT_EQ(second->id(), 0U);
+        EXPECT_EQ(first->id(), final_child);
+        ExpectReaped(replaced_child);
+        Process* self = &*first;
+        *first = std::move(*self);
+        EXPECT_EQ(first->id(), final_child);
+    }
+    ExpectReaped(final_child);
+    EXPECT_EQ(OpenResourceCount(), resources);
 }
 
 }  // namespace

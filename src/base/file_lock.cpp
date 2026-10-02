@@ -3,6 +3,8 @@
 #include <cerrno>
 #include <utility>
 
+#include "native_resource.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -14,17 +16,10 @@
 namespace tos {
 
 struct FileLock::Impl final {
-    ~Impl() {
 #ifdef _WIN32
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+    detail::UniqueHandle handle;
 #else
-        if (descriptor >= 0) close(descriptor);
-#endif
-    }
-#ifdef _WIN32
-    HANDLE handle{INVALID_HANDLE_VALUE};
-#else
-    int descriptor{-1};
+    detail::UniqueFd descriptor;
 #endif
 };
 
@@ -45,9 +40,9 @@ Result<FileLock> FileLock::TryAcquire(const Path& path) {
     if (!wide) {
         return std::move(wide).status();
     }
-    impl->handle = CreateFileW(wide.value().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                               OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (impl->handle == INVALID_HANDLE_VALUE) {
+    impl->handle.Reset(CreateFileW(wide.value().c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                   OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!impl->handle) {
         const DWORD error = GetLastError();
         if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION) {
             return Status(StatusCode::kUnavailable, "lock file is already in use");
@@ -55,13 +50,13 @@ Result<FileLock> FileLock::TryAcquire(const Path& path) {
         return WindowsError(error, "open lock file");
     }
 #else
-    impl->descriptor = open(path.utf8().c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-    if (impl->descriptor < 0) {
+    impl->descriptor.Reset(open(path.utf8().c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600));
+    if (!impl->descriptor) {
         return ErrnoError(errno, "open lock file");
     }
     int result;
     do {
-        result = flock(impl->descriptor, LOCK_EX | LOCK_NB);
+        result = flock(impl->descriptor.Get(), LOCK_EX | LOCK_NB);
     } while (result != 0 && errno == EINTR);
     if (result != 0) {
         const int error = errno;

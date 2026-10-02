@@ -17,6 +17,10 @@
 #include <utility>
 #include <vector>
 
+#include "native_resource.h"
+#include "process_internal.h"
+#include "tos/base/scope_exit.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -179,25 +183,17 @@ Result<PosixLaunchData> BuildPosixLaunchData(const ProcessOptions& options) {
     return data;
 }
 
-bool CreatePipe(int descriptors[2]) {
-    if (pipe(descriptors) != 0) {
-        return false;
-    }
-    if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) != 0 ||
-        fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) != 0) {
-        const int saved_errno = errno;
-        close(descriptors[0]);
-        close(descriptors[1]);
-        errno = saved_errno;
-        return false;
-    }
-    return true;
+bool CreatePipe(detail::UniqueFd (&owners)[2]) noexcept {
+    int descriptors[2];
+    if (pipe(descriptors) != 0) return false;
+    owners[0].Reset(descriptors[0]);
+    owners[1].Reset(descriptors[1]);
+    return fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) == 0 &&
+           fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) == 0;
 }
 
-void CloseDescriptor(int* descriptor) noexcept {
-    if (*descriptor >= 0) {
-        close(*descriptor);
-        *descriptor = -1;
+void ReapPosix(pid_t pid) noexcept {
+    while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {
     }
 }
 
@@ -218,8 +214,8 @@ void ReportChildError(int descriptor, int error) noexcept {
 
 struct SpawnedProcess {
     pid_t pid = -1;
-    int stdout_descriptor = -1;
-    int stderr_descriptor = -1;
+    detail::UniqueFd stdout_descriptor;
+    detail::UniqueFd stderr_descriptor;
 };
 
 Result<SpawnedProcess> SpawnPosix(const ProcessOptions& options, bool capture_output) {
@@ -228,101 +224,83 @@ Result<SpawnedProcess> SpawnPosix(const ProcessOptions& options, bool capture_ou
         return std::move(data).status();
     }
 
-    int launch_error[2] = {-1, -1};
-    int stdout_pipe[2] = {-1, -1};
-    int stderr_pipe[2] = {-1, -1};
+    detail::UniqueFd launch_error[2];
+    detail::UniqueFd stdout_pipe[2];
+    detail::UniqueFd stderr_pipe[2];
     if (!CreatePipe(launch_error)) {
         return ErrnoStatus(errno, "could not create process launch pipe");
     }
     if (capture_output && !CreatePipe(stdout_pipe)) {
         const int saved_errno = errno;
-        CloseDescriptor(&launch_error[0]);
-        CloseDescriptor(&launch_error[1]);
         return ErrnoStatus(saved_errno, "could not create stdout pipe");
     }
     if (capture_output && !CreatePipe(stderr_pipe)) {
         const int saved_errno = errno;
-        CloseDescriptor(&launch_error[0]);
-        CloseDescriptor(&launch_error[1]);
-        CloseDescriptor(&stdout_pipe[0]);
-        CloseDescriptor(&stdout_pipe[1]);
         return ErrnoStatus(saved_errno, "could not create stderr pipe");
     }
 
     const pid_t pid = fork();
     if (pid < 0) {
         const int saved_errno = errno;
-        CloseDescriptor(&launch_error[0]);
-        CloseDescriptor(&launch_error[1]);
-        CloseDescriptor(&stdout_pipe[0]);
-        CloseDescriptor(&stdout_pipe[1]);
-        CloseDescriptor(&stderr_pipe[0]);
-        CloseDescriptor(&stderr_pipe[1]);
         return ErrnoStatus(saved_errno, "could not start process");
     }
     if (pid == 0) {
-        CloseDescriptor(&launch_error[0]);
+        // Only async-signal-safe native operations after fork; no exceptions or allocation.
+        launch_error[0].Reset();
         if (capture_output) {
-            CloseDescriptor(&stdout_pipe[0]);
-            CloseDescriptor(&stderr_pipe[0]);
-            if (dup2(stdout_pipe[1], STDOUT_FILENO) < 0 ||
-                dup2(stderr_pipe[1], STDERR_FILENO) < 0) {
-                ReportChildError(launch_error[1], errno);
+            stdout_pipe[0].Reset();
+            stderr_pipe[0].Reset();
+            if (dup2(stdout_pipe[1].Get(), STDOUT_FILENO) < 0 ||
+                dup2(stderr_pipe[1].Get(), STDERR_FILENO) < 0) {
+                ReportChildError(launch_error[1].Get(), errno);
                 _exit(127);
             }
-            CloseDescriptor(&stdout_pipe[1]);
-            CloseDescriptor(&stderr_pipe[1]);
-            const int input = open("/dev/null", O_RDONLY);
-            if (input < 0 || dup2(input, STDIN_FILENO) < 0) {
-                const int saved_errno = errno;
-                if (input >= 0) {
-                    close(input);
-                }
-                ReportChildError(launch_error[1], saved_errno);
+            stdout_pipe[1].Reset();
+            stderr_pipe[1].Reset();
+            detail::UniqueFd input(open("/dev/null", O_RDONLY));
+            if (!input || dup2(input.Get(), STDIN_FILENO) < 0) {
+                ReportChildError(launch_error[1].Get(), errno);
                 _exit(127);
             }
-            close(input);
+            input.Reset();
         }
         if (chdir(data->working_directory.c_str()) != 0) {
-            ReportChildError(launch_error[1], errno);
+            ReportChildError(launch_error[1].Get(), errno);
             _exit(127);
         }
         execve(data->executable.c_str(), data->argv.data(), data->envp.data());
-        ReportChildError(launch_error[1], errno);
+        ReportChildError(launch_error[1].Get(), errno);
         _exit(127);
     }
 
-    CloseDescriptor(&launch_error[1]);
-    CloseDescriptor(&stdout_pipe[1]);
-    CloseDescriptor(&stderr_pipe[1]);
+    auto cleanup = MakeScopeExit([&]() noexcept {
+        kill(pid, SIGKILL);
+        ReapPosix(pid);
+    });
+    launch_error[1].Reset();
+    stdout_pipe[1].Reset();
+    stderr_pipe[1].Reset();
     int child_error = 0;
     unsigned char* bytes = reinterpret_cast<unsigned char*>(&child_error);
     std::size_t received = 0;
     while (received < sizeof(child_error)) {
         const ssize_t result =
-            read(launch_error[0], bytes + received, sizeof(child_error) - received);
+            read(launch_error[0].Get(), bytes + received, sizeof(child_error) - received);
         if (result > 0) {
             received += static_cast<std::size_t>(result);
         } else if (result == 0) {
             break;
         } else if (errno != EINTR) {
             const int saved_errno = errno;
-            CloseDescriptor(&launch_error[0]);
-            CloseDescriptor(&stdout_pipe[0]);
-            CloseDescriptor(&stderr_pipe[0]);
-            kill(pid, SIGKILL);
-            waitpid(pid, nullptr, 0);
             return ErrnoStatus(saved_errno, "could not observe process launch");
         }
     }
-    CloseDescriptor(&launch_error[0]);
+    launch_error[0].Reset();
     if (received != 0) {
-        CloseDescriptor(&stdout_pipe[0]);
-        CloseDescriptor(&stderr_pipe[0]);
-        waitpid(pid, nullptr, 0);
         return ErrnoStatus(child_error, "could not start process");
     }
-    return SpawnedProcess{pid, stdout_pipe[0], stderr_pipe[0]};
+    cleanup.Release();
+    return SpawnedProcess{pid, std::move(stdout_pipe[0]), std::move(stderr_pipe[0])};
 }
 
 Result<ProcessExit> WaitPosix(pid_t pid, int options) {
@@ -372,7 +350,6 @@ void ReadPosixCapture(int descriptor, CaptureState* state) {
             }
         }
     }
-    CloseDescriptor(&descriptor);
 }
 
 #else
@@ -446,6 +423,7 @@ Result<std::vector<wchar_t>> BuildWindowsEnvironment(const ProcessOptions& optio
     if (inherited == nullptr) {
         return WindowsStatus(GetLastError(), "could not read inherited environment");
     }
+    auto cleanup = MakeScopeExit([&]() noexcept { FreeEnvironmentStringsW(inherited); });
     for (const wchar_t* current = inherited; *current != L'\0';
          current += std::wcslen(current) + 1) {
         const std::wstring entry(current);
@@ -455,7 +433,6 @@ Result<std::vector<wchar_t>> BuildWindowsEnvironment(const ProcessOptions& optio
             environment[WindowsEnvironmentKey(name)] = {name, entry.substr(separator + 1)};
         }
     }
-    FreeEnvironmentStringsW(inherited);
 
     std::map<std::wstring, std::string> override_names;
     for (const auto& entry : options.environment_overrides) {
@@ -496,17 +473,20 @@ Result<std::vector<wchar_t>> BuildWindowsEnvironment(const ProcessOptions& optio
 }
 
 struct SpawnedProcess {
-    HANDLE process = nullptr;
+    detail::UniqueHandle process;
     DWORD process_id = 0;
-    HANDLE stdout_handle = nullptr;
-    HANDLE stderr_handle = nullptr;
+    detail::UniqueHandle stdout_handle;
+    detail::UniqueHandle stderr_handle;
 };
 
-void CloseHandleIfOpen(HANDLE* handle) noexcept {
-    if (*handle != nullptr && *handle != INVALID_HANDLE_VALUE) {
-        CloseHandle(*handle);
-        *handle = nullptr;
-    }
+bool CreateWindowsPipe(detail::UniqueHandle& read, detail::UniqueHandle& write,
+                       SECURITY_ATTRIBUTES* attributes) noexcept {
+    HANDLE native_read = nullptr;
+    HANDLE native_write = nullptr;
+    const BOOL created = CreatePipe(&native_read, &native_write, attributes, 0);
+    read.Reset(native_read);
+    write.Reset(native_write);
+    return created && SetHandleInformation(read.Get(), HANDLE_FLAG_INHERIT, 0);
 }
 
 Result<SpawnedProcess> SpawnWindows(const ProcessOptions& options, bool capture_output) {
@@ -541,33 +521,20 @@ Result<SpawnedProcess> SpawnWindows(const ProcessOptions& options, bool capture_
     SECURITY_ATTRIBUTES attributes{};
     attributes.nLength = sizeof(attributes);
     attributes.bInheritHandle = TRUE;
-    HANDLE stdout_read = nullptr;
-    HANDLE stdout_write = nullptr;
-    HANDLE stderr_read = nullptr;
-    HANDLE stderr_write = nullptr;
-    HANDLE stdin_handle = nullptr;
+    detail::UniqueHandle stdout_read;
+    detail::UniqueHandle stdout_write;
+    detail::UniqueHandle stderr_read;
+    detail::UniqueHandle stderr_write;
+    detail::UniqueHandle stdin_handle;
     if (capture_output) {
-        if (!CreatePipe(&stdout_read, &stdout_write, &attributes, 0) ||
-            !SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0) ||
-            !CreatePipe(&stderr_read, &stderr_write, &attributes, 0) ||
-            !SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0)) {
-            const DWORD error = GetLastError();
-            CloseHandleIfOpen(&stdout_read);
-            CloseHandleIfOpen(&stdout_write);
-            CloseHandleIfOpen(&stderr_read);
-            CloseHandleIfOpen(&stderr_write);
-            return WindowsStatus(error, "could not create output pipes");
+        if (!CreateWindowsPipe(stdout_read, stdout_write, &attributes) ||
+            !CreateWindowsPipe(stderr_read, stderr_write, &attributes)) {
+            return WindowsStatus(GetLastError(), "could not create output pipes");
         }
-        stdin_handle = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                   &attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (stdin_handle == INVALID_HANDLE_VALUE) {
-            const DWORD error = GetLastError();
-            stdin_handle = nullptr;
-            CloseHandleIfOpen(&stdout_read);
-            CloseHandleIfOpen(&stdout_write);
-            CloseHandleIfOpen(&stderr_read);
-            CloseHandleIfOpen(&stderr_write);
-            return WindowsStatus(error, "could not create closed process input");
+        stdin_handle.Reset(CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                       &attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (!stdin_handle) {
+            return WindowsStatus(GetLastError(), "could not create closed process input");
         }
     }
 
@@ -575,9 +542,9 @@ Result<SpawnedProcess> SpawnWindows(const ProcessOptions& options, bool capture_
     startup.cb = sizeof(startup);
     if (capture_output) {
         startup.dwFlags = STARTF_USESTDHANDLES;
-        startup.hStdInput = stdin_handle;
-        startup.hStdOutput = stdout_write;
-        startup.hStdError = stderr_write;
+        startup.hStdInput = stdin_handle.Get();
+        startup.hStdOutput = stdout_write.Get();
+        startup.hStdError = stderr_write.Get();
     }
     PROCESS_INFORMATION information{};
     const BOOL created =
@@ -586,16 +553,11 @@ Result<SpawnedProcess> SpawnWindows(const ProcessOptions& options, bool capture_
                        environment->empty() ? nullptr : environment->data(),
                        wide_directory->c_str(), &startup, &information);
     const DWORD create_error = created ? ERROR_SUCCESS : GetLastError();
-    CloseHandleIfOpen(&stdin_handle);
-    CloseHandleIfOpen(&stdout_write);
-    CloseHandleIfOpen(&stderr_write);
-    if (!created) {
-        CloseHandleIfOpen(&stdout_read);
-        CloseHandleIfOpen(&stderr_read);
-        return WindowsStatus(create_error, "could not start process");
-    }
-    CloseHandle(information.hThread);
-    return SpawnedProcess{information.hProcess, information.dwProcessId, stdout_read, stderr_read};
+    detail::UniqueHandle process(information.hProcess);
+    detail::UniqueHandle thread(information.hThread);
+    if (!created) return WindowsStatus(create_error, "could not start process");
+    return SpawnedProcess{std::move(process), information.dwProcessId, std::move(stdout_read),
+                          std::move(stderr_read)};
 }
 
 Result<ProcessExit> WaitWindows(HANDLE process) {
@@ -639,16 +601,39 @@ void ReadWindowsCapture(HANDLE handle, CaptureState* state) {
             }
         }
     }
-    CloseHandleIfOpen(&handle);
 }
 
 #endif
+
+#ifdef _WIN32
+using CaptureResource = detail::UniqueHandle;
+#else
+using CaptureResource = detail::UniqueFd;
+#endif
+struct CaptureJob {
+    CaptureResource stream;
+    CaptureState* state;
+};
+
+void CaptureEntry(void* argument) noexcept {
+    auto& job = *static_cast<CaptureJob*>(argument);
+#ifdef _WIN32
+    ReadWindowsCapture(job.stream.Get(), job.state);
+#else
+    ReadPosixCapture(job.stream.Get(), job.state);
+#endif
+    job.stream.Reset();
+}
+
+std::thread StartCaptureThread(void (*entry)(void*), void* argument, std::uint64_t, void*) {
+    return std::thread(entry, argument);
+}
 
 }  // namespace
 
 struct Process::State {
 #ifdef _WIN32
-    HANDLE process = nullptr;
+    detail::UniqueHandle process;
     DWORD process_id = 0;
 #else
     pid_t process_id = -1;
@@ -669,24 +654,14 @@ Process& Process::operator=(Process&& other) noexcept {
 }
 
 Process::~Process() {
-    try {
-        if (!state_ || state_->exit) {
+    if (!state_ || state_->exit) return;
 #ifdef _WIN32
-            if (state_ && state_->process != nullptr) {
-                CloseHandle(state_->process);
-            }
+    TerminateProcess(state_->process.Get(), 1);
+    WaitForSingleObject(state_->process.Get(), INFINITE);
+#else
+    kill(state_->process_id, SIGKILL);
+    ReapPosix(state_->process_id);
 #endif
-            return;
-        }
-        static_cast<void>(Terminate());
-        static_cast<void>(Wait());
-#ifdef _WIN32
-        if (state_->process != nullptr) {
-            CloseHandle(state_->process);
-        }
-#endif
-    } catch (...) {
-    }
 }
 
 Result<Process> Process::Start(const ProcessOptions& options) {
@@ -700,7 +675,7 @@ Result<Process> Process::Start(const ProcessOptions& options) {
     if (!spawned) {
         return std::move(spawned).status();
     }
-    state->process = spawned->process;
+    state->process = std::move(spawned->process);
     state->process_id = spawned->process_id;
 #else
     auto spawned = SpawnPosix(options, false);
@@ -720,7 +695,7 @@ Result<ProcessExit> Process::Wait() {
         return *state_->exit;
     }
 #ifdef _WIN32
-    auto exit = WaitWindows(state_->process);
+    auto exit = WaitWindows(state_->process.Get());
 #else
     auto exit = WaitPosix(state_->process_id, 0);
 #endif
@@ -739,11 +714,11 @@ Status Process::Terminate() {
         return Status::Ok();
     }
 #ifdef _WIN32
-    if (!TerminateProcess(state_->process, 1)) {
+    if (!TerminateProcess(state_->process.Get(), 1)) {
         const DWORD error = GetLastError();
         DWORD exit_code = STILL_ACTIVE;
-        if (error != ERROR_ACCESS_DENIED || !GetExitCodeProcess(state_->process, &exit_code) ||
-            exit_code == STILL_ACTIVE) {
+        if (error != ERROR_ACCESS_DENIED ||
+            !GetExitCodeProcess(state_->process.Get(), &exit_code) || exit_code == STILL_ACTIVE) {
             return WindowsStatus(error, "could not terminate process");
         }
     }
@@ -766,8 +741,10 @@ std::uint64_t Process::id() const noexcept {
 #endif
 }
 
-Result<CommandResult> RunCommand(const ProcessOptions& process_options,
-                                 const RunCommandOptions& options) {
+Result<CommandResult> detail::RunCommandWithThreadFactory(const ProcessOptions& process_options,
+                                                          const RunCommandOptions& options,
+                                                          CaptureThreadFactory factory,
+                                                          void* context) {
     Status valid = ValidateProcessOptions(process_options);
     if (!valid) {
         return valid;
@@ -785,18 +762,43 @@ Result<CommandResult> RunCommand(const ProcessOptions& process_options,
         return std::move(spawned).status();
     }
 
+    bool reaped = false;
+    auto stop_and_reap = [&]() noexcept {
+        if (reaped) return;
+#ifdef _WIN32
+        TerminateProcess(spawned->process.Get(), 1);
+        WaitForSingleObject(spawned->process.Get(), INFINITE);
+#else
+        kill(spawned->pid, SIGKILL);
+        ReapPosix(spawned->pid);
+#endif
+        reaped = true;
+    };
+    auto child_cleanup = MakeScopeExit(stop_and_reap);
     std::atomic<bool> overflow{false};
     CaptureState stdout_state{std::string(), options.max_output_bytes_per_stream, &overflow,
                               nullptr, 0};
     CaptureState stderr_state{std::string(), options.max_output_bytes_per_stream, &overflow,
                               nullptr, 0};
 #ifdef _WIN32
-    std::thread stdout_reader(ReadWindowsCapture, spawned->stdout_handle, &stdout_state);
-    std::thread stderr_reader(ReadWindowsCapture, spawned->stderr_handle, &stderr_state);
+    CaptureJob stdout_job{std::move(spawned->stdout_handle), &stdout_state};
+    CaptureJob stderr_job{std::move(spawned->stderr_handle), &stderr_state};
+    const auto child_id = static_cast<std::uint64_t>(spawned->process_id);
 #else
-    std::thread stdout_reader(ReadPosixCapture, spawned->stdout_descriptor, &stdout_state);
-    std::thread stderr_reader(ReadPosixCapture, spawned->stderr_descriptor, &stderr_state);
+    CaptureJob stdout_job{std::move(spawned->stdout_descriptor), &stdout_state};
+    CaptureJob stderr_job{std::move(spawned->stderr_descriptor), &stderr_state};
+    const auto child_id = static_cast<std::uint64_t>(spawned->pid);
 #endif
+    std::thread stdout_reader;
+    std::thread stderr_reader;
+    auto reader_cleanup = MakeScopeExit([&]() noexcept {
+        // Killing/reaping before joining ensures a blocked reader sees pipe EOF.
+        stop_and_reap();
+        if (stdout_reader.joinable()) stdout_reader.join();
+        if (stderr_reader.joinable()) stderr_reader.join();
+    });
+    stdout_reader = factory(CaptureEntry, &stdout_job, child_id, context);
+    stderr_reader = factory(CaptureEntry, &stderr_job, child_id, context);
 
     enum class StopReason { kNone, kTimeout, kOutputLimit };
     StopReason stop_reason = StopReason::kNone;
@@ -808,54 +810,36 @@ Result<CommandResult> RunCommand(const ProcessOptions& process_options,
                               : std::nullopt;
     while (!exit) {
 #ifdef _WIN32
-        const DWORD wait_result = WaitForSingleObject(spawned->process, 1);
+        const DWORD wait_result = WaitForSingleObject(spawned->process.Get(), 1);
         if (wait_result == WAIT_OBJECT_0) {
-            auto waited = WaitWindows(spawned->process);
-            if (!waited) {
-                stdout_reader.join();
-                stderr_reader.join();
-                CloseHandle(spawned->process);
-                return std::move(waited).status();
-            }
+            reaped = true;
+            auto waited = WaitWindows(spawned->process.Get());
+            if (!waited) return std::move(waited).status();
             exit = std::move(waited).value();
         } else if (wait_result == WAIT_FAILED) {
-            const Status failure = WindowsStatus(GetLastError(), "could not wait for process");
-            TerminateProcess(spawned->process, 1);
-            WaitForSingleObject(spawned->process, INFINITE);
-            stdout_reader.join();
-            stderr_reader.join();
-            CloseHandle(spawned->process);
-            return Status(failure.code(), failure.message());
+            return WindowsStatus(GetLastError(), "could not wait for process");
         }
 #else
         int raw_status = 0;
         const pid_t waited = waitpid(spawned->pid, &raw_status, WNOHANG);
         if (waited == spawned->pid) {
+            reaped = true;
             if (WIFEXITED(raw_status)) {
                 exit =
                     ProcessExit{static_cast<std::uint32_t>(WEXITSTATUS(raw_status)), std::nullopt};
             } else if (WIFSIGNALED(raw_status)) {
                 exit = ProcessExit{std::nullopt, WTERMSIG(raw_status)};
             } else {
-                kill(spawned->pid, SIGKILL);
-                waitpid(spawned->pid, nullptr, 0);
-                stdout_reader.join();
-                stderr_reader.join();
                 return Status(StatusCode::kUnavailable,
                               "process ended with an unrecognized wait status");
             }
         } else if (waited < 0 && errno != EINTR) {
-            const Status failure = ErrnoStatus(errno, "could not wait for process");
-            kill(spawned->pid, SIGKILL);
-            waitpid(spawned->pid, nullptr, 0);
-            stdout_reader.join();
-            stderr_reader.join();
-            return Status(failure.code(), failure.message());
+            const int error = errno;
+            if (error == ECHILD) reaped = true;
+            return ErrnoStatus(error, "could not wait for process");
         }
 #endif
-        if (exit) {
-            break;
-        }
+        if (exit) break;
         if (overflow.load(std::memory_order_relaxed)) {
             stop_reason = StopReason::kOutputLimit;
         } else if (deadline && std::chrono::steady_clock::now() >= *deadline) {
@@ -863,32 +847,26 @@ Result<CommandResult> RunCommand(const ProcessOptions& process_options,
         }
         if (stop_reason != StopReason::kNone) {
 #ifdef _WIN32
-            if (!TerminateProcess(spawned->process, 1) && GetLastError() != ERROR_ACCESS_DENIED) {
-                const Status failure = WindowsStatus(GetLastError(), "could not terminate process");
-                stdout_reader.join();
-                stderr_reader.join();
-                CloseHandle(spawned->process);
-                return Status(failure.code(), failure.message());
+            if (!TerminateProcess(spawned->process.Get(), 1)) {
+                const DWORD error = GetLastError();
+                if (error != ERROR_ACCESS_DENIED)
+                    return WindowsStatus(error, "could not terminate process");
             }
-            WaitForSingleObject(spawned->process, INFINITE);
+            if (WaitForSingleObject(spawned->process.Get(), INFINITE) != WAIT_OBJECT_0)
+                return WindowsStatus(GetLastError(), "could not wait for process");
 #else
-            if (kill(spawned->pid, SIGKILL) != 0 && errno != ESRCH) {
-                const Status failure = ErrnoStatus(errno, "could not terminate process");
-                stdout_reader.join();
-                stderr_reader.join();
-                return Status(failure.code(), failure.message());
-            }
-            while (waitpid(spawned->pid, nullptr, 0) < 0 && errno == EINTR) {
-            }
+            if (kill(spawned->pid, SIGKILL) != 0 && errno != ESRCH)
+                return ErrnoStatus(errno, "could not terminate process");
+            ReapPosix(spawned->pid);
 #endif
+            reaped = true;
             break;
         }
     }
     stdout_reader.join();
     stderr_reader.join();
-#ifdef _WIN32
-    CloseHandle(spawned->process);
-#endif
+    reader_cleanup.Release();
+    child_cleanup.Release();
     if (stdout_state.exception) {
         std::rethrow_exception(stdout_state.exception);
     }
@@ -913,6 +891,11 @@ Result<CommandResult> RunCommand(const ProcessOptions& process_options,
     }
     return CommandResult{std::move(*exit), std::move(stdout_state.output),
                          std::move(stderr_state.output)};
+}
+
+Result<CommandResult> RunCommand(const ProcessOptions& options,
+                                 const RunCommandOptions& run_options) {
+    return detail::RunCommandWithThreadFactory(options, run_options, StartCaptureThread, nullptr);
 }
 
 }  // namespace tos

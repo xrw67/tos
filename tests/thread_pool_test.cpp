@@ -241,7 +241,7 @@ TEST(ThreadPoolTest, ConcurrentSubmissionAndShutdownAccountForAllAcceptedTasks) 
     tos::ThreadPool pool(2, 512);
     tos::test::Gate start;
     std::vector<std::thread> threads;
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         start.Open();
         for (auto& thread : threads)
             if (thread.joinable()) thread.join();
@@ -294,7 +294,7 @@ TEST(ThreadPoolTest, WorkerInitiatedShutdownStillRequiresExternalCallersToJoinAn
     std::atomic<int> completed{0};
     std::atomic<int> joining_callers{0};
     std::vector<std::thread> closers;
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         begin_shutdown.Open();
         release_worker.Open();
         for (auto& thread : closers)

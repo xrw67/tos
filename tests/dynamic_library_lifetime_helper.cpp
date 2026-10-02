@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
     if (scenario != "concurrent") return 16;
     std::atomic<int> failures{0};
     std::vector<std::thread> threads;
-    tos::test::ScopeExit cleanup([&] {
+    tos::ScopeExit cleanup([&] {
         for (auto& thread : threads)
             if (thread.joinable()) thread.join();
     });

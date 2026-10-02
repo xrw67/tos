@@ -9,7 +9,9 @@
 #include <string>
 #include <utility>
 
+#include "native_resource.h"
 #include "tos/base/filesystem.h"
+#include "tos/base/scope_exit.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -39,10 +41,10 @@ struct AtomicFileWriter::Impl final {
         : target(std::move(destination)), durability(mode) {}
     ~Impl() {
 #ifdef _WIN32
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        handle.Reset();
         if (!replaced && !temporary.empty()) DeleteFileW(temporary.c_str());
 #else
-        if (descriptor >= 0) close(descriptor);
+        descriptor.Reset();
         if (!replaced && !temporary.empty()) unlink(temporary.c_str());
 #endif
     }
@@ -54,9 +56,9 @@ struct AtomicFileWriter::Impl final {
     bool replaced{false};
     bool failed{false};
 #ifdef _WIN32
-    HANDLE handle{INVALID_HANDLE_VALUE};
+    detail::UniqueHandle handle;
 #else
-    int descriptor{-1};
+    detail::UniqueFd descriptor;
 #endif
 };
 
@@ -88,9 +90,9 @@ Result<AtomicFileWriter> AtomicFileWriter::Create(const Path& target,
         impl->temporary = parent / (impl->destination.filename().wstring() + L".tos-tmp-" +
                                     std::to_wstring(GetCurrentProcessId()) + L"-" +
                                     std::to_wstring(sequence.fetch_add(1)));
-        impl->handle = CreateFileW(impl->temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-                                   FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (impl->handle != INVALID_HANDLE_VALUE) return AtomicFileWriter(std::move(impl));
+        impl->handle.Reset(CreateFileW(impl->temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                                       CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+        if (impl->handle) return AtomicFileWriter(std::move(impl));
         const DWORD error = GetLastError();
         // Never remove a colliding file owned by another writer.
         impl->temporary.clear();
@@ -101,15 +103,15 @@ Result<AtomicFileWriter> AtomicFileWriter::Create(const Path& target,
 #else
     std::string name =
         (parent / (impl->destination.filename().string() + ".tos-tmp-XXXXXX")).string();
-    impl->descriptor = mkstemp(name.data());
-    if (impl->descriptor < 0) return NativeError(errno, target, "create temporary file");
-    try {
-        impl->temporary = name;
-    } catch (...) {
+    impl->descriptor.Reset(mkstemp(name.data()));
+    if (!impl->descriptor) return NativeError(errno, target, "create temporary file");
+    auto cleanup = MakeScopeExit([&]() noexcept {
+        impl->descriptor.Reset();
         unlink(name.c_str());
-        throw;
-    }
-    if (fcntl(impl->descriptor, F_SETFD, FD_CLOEXEC) != 0)
+    });
+    impl->temporary = name;
+    cleanup.Release();
+    if (fcntl(impl->descriptor.Get(), F_SETFD, FD_CLOEXEC) != 0)
         return NativeError(errno, target, "set temporary file close-on-exec");
     return AtomicFileWriter(std::move(impl));
 #endif
@@ -124,14 +126,14 @@ Status AtomicFileWriter::Write(std::string_view bytes) {
         const DWORD chunk = static_cast<DWORD>(
             std::min<std::size_t>(bytes.size() - offset, std::numeric_limits<DWORD>::max()));
         DWORD written = 0;
-        if (!WriteFile(impl_->handle, bytes.data() + offset, chunk, &written, nullptr)) {
+        if (!WriteFile(impl_->handle.Get(), bytes.data() + offset, chunk, &written, nullptr)) {
             impl_->failed = true;
             return NativeError(GetLastError(), impl_->target, "write temporary file");
         }
 #else
         const std::size_t chunk =
             std::min<std::size_t>(bytes.size() - offset, std::numeric_limits<ssize_t>::max());
-        const ssize_t written = write(impl_->descriptor, bytes.data() + offset, chunk);
+        const ssize_t written = write(impl_->descriptor.Get(), bytes.data() + offset, chunk);
         if (written < 0) {
             if (errno == EINTR) continue;
             impl_->failed = true;
@@ -153,11 +155,10 @@ Status AtomicFileWriter::Commit() {
     // Every commit attempt is terminal, including a failed directory flush after replacement.
     impl_->failed = true;
 #ifdef _WIN32
-    if (impl_->durability != AtomicWriteDurability::kNone && !FlushFileBuffers(impl_->handle))
+    if (impl_->durability != AtomicWriteDurability::kNone && !FlushFileBuffers(impl_->handle.Get()))
         return NativeError(GetLastError(), impl_->target, "flush temporary file");
-    const HANDLE handle = std::exchange(impl_->handle, INVALID_HANDLE_VALUE);
-    if (!CloseHandle(handle))
-        return NativeError(GetLastError(), impl_->target, "close temporary file");
+    const DWORD close_error = impl_->handle.Close();
+    if (close_error) return NativeError(close_error, impl_->target, "close temporary file");
     const DWORD flags =
         MOVEFILE_REPLACE_EXISTING |
         (impl_->durability == AtomicWriteDurability::kNone ? 0 : MOVEFILE_WRITE_THROUGH);
@@ -168,12 +169,12 @@ Status AtomicFileWriter::Commit() {
     if (impl_->durability != AtomicWriteDurability::kNone) {
         int result;
         do {
-            result = fsync(impl_->descriptor);
+            result = fsync(impl_->descriptor.Get());
         } while (result != 0 && errno == EINTR);
         if (result != 0) return NativeError(errno, impl_->target, "flush temporary file");
     }
-    const int descriptor = std::exchange(impl_->descriptor, -1);
-    if (close(descriptor) != 0) return NativeError(errno, impl_->target, "close temporary file");
+    const int close_error = impl_->descriptor.Close();
+    if (close_error) return NativeError(close_error, impl_->target, "close temporary file");
     if (rename(impl_->temporary.c_str(), impl_->destination.c_str()) != 0)
         return NativeError(errno, impl_->target, "replace destination");
     impl_->replaced = true;
@@ -189,16 +190,16 @@ Status SyncDirectory(const Path& path) {
 #ifdef _WIN32
     return Status(StatusCode::kUnimplemented, "Windows cannot flush a directory");
 #else
-    const int descriptor = open(path.utf8().c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY);
-    if (descriptor < 0) return NativeError(errno, path, "open directory");
+    detail::UniqueFd descriptor(open(path.utf8().c_str(), O_RDONLY | O_CLOEXEC | O_DIRECTORY));
+    if (!descriptor) return NativeError(errno, path, "open directory");
     int result;
     do {
-        result = fsync(descriptor);
+        result = fsync(descriptor.Get());
     } while (result != 0 && errno == EINTR);
     const int error = errno;
-    const int closed = close(descriptor);
+    const int close_error = descriptor.Close();
     if (result != 0) return NativeError(error, path, "flush directory");
-    if (closed != 0) return NativeError(errno, path, "close directory");
+    if (close_error) return NativeError(close_error, path, "close directory");
     return Status::Ok();
 #endif
 }
